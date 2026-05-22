@@ -5,11 +5,11 @@ import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 
 function Calendar() {
   const [bookings, setBookings] = useState([]);
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 4, 22)); // 22.05.2026
+  const [currentDate, setCurrentDate] = useState(new Date()); // Heute
   const [showModal, setShowModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [formData, setFormData] = useState({
-    apartment: 'Hus Upstalsboom 1',
+    apartment: 'Upstalsboom 1',
     guestName: '',
     email: '',
     phone: '',
@@ -23,8 +23,8 @@ function Calendar() {
   });
 
   const apartments = [
-    'Hus Upstalsboom 1', 'Hus Upstalsboom 2', 'Hus Upstalsboom 3', 'Hus Upstalsboom 4', 'Hus Upstalsboom 5', 'Hus Upstalsboom 6',
-    'Haus Anne 1', 'Haus Anne 2', 'Haus Anne 3', 'Haus Anne 4', 'Haus Anne 5',
+    'Upstalsboom 1', 'Upstalsboom 2', 'Upstalsboom 3', 'Upstalsboom 4', 'Upstalsboom 5', 'Upstalsboom 6',
+    'Anne 1', 'Anne 2', 'Anne 3', 'Anne 4', 'Anne 5',
   ];
 
   const colors = [
@@ -32,6 +32,10 @@ function Calendar() {
   ];
 
   useEffect(() => {
+    // Normalize today to start of day
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    setCurrentDate(today);
     fetchBookings();
   }, []);
 
@@ -73,7 +77,7 @@ function Calendar() {
       fetchBookings();
       setShowModal(false);
       setFormData({
-        apartment: 'Hus Upstalsboom 1',
+        apartment: 'Upstalsboom 1',
         guestName: '',
         email: '',
         phone: '',
@@ -143,8 +147,23 @@ function Calendar() {
     };
   };
 
+  // Group bookings by day to determine row position
+  const getBookingRow = (booking, apartment, days) => {
+    const pos = getBookingPosition(booking, days);
+    if (!pos) return 0;
+
+    const aptBookings = getBookingsForApartment(apartment);
+    const bookingsOnSameDay = aptBookings.filter(b => {
+      const bPos = getBookingPosition(b, days);
+      if (!bPos) return false;
+      return bPos.startDay <= pos.startDay && pos.startDay < bPos.startDay + bPos.duration;
+    });
+
+    return bookingsOnSameDay.indexOf(booking);
+  };
+
   const days = getDaysInRange();
-  const dayWidth = 100; // pixels per day
+  const dayWidth = 80; // pixels per day
 
   return (
     <div className="p-8">
@@ -158,7 +177,7 @@ function Calendar() {
             setShowModal(true);
             setSelectedBooking(null);
             setFormData({
-              apartment: 'Hus Upstalsboom 1',
+              apartment: 'Upstalsboom 1',
               guestName: '',
               email: '',
               phone: '',
@@ -204,84 +223,112 @@ function Calendar() {
         </button>
       </div>
 
-      {/* Calendar Header */}
+      {/* Calendar Container */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {/* Days Header */}
-        <div className="flex border-b border-gray-200">
-          <div className="w-32 flex-shrink-0 px-4 py-3 font-semibold text-gray-900 bg-gray-50 border-r border-gray-200">
-            Wohnung
-          </div>
-          <div className="flex overflow-x-auto">
-            {days.map((day, i) => (
+        {/* Wrapper with flex */}
+        <div className="flex overflow-x-auto">
+          {/* Apartments Column (Fixed) */}
+          <div className="flex-shrink-0">
+            {/* Header */}
+            <div className="w-40 px-4 py-3 font-semibold text-gray-900 bg-gray-50 border-r border-gray-200 border-b">
+              Wohnung
+            </div>
+            {/* Rows */}
+            {apartments.map((apt) => (
               <div
-                key={i}
-                className="flex-shrink-0 text-center py-3 border-r border-gray-200 bg-gray-50"
-                style={{ width: dayWidth }}
+                key={apt}
+                className="w-40 px-4 py-4 font-medium text-gray-900 bg-white border-r border-gray-200 border-b hover:bg-blue-50 transition"
+                style={{ minHeight: '80px' }}
               >
-                <div className="text-xs font-medium text-gray-600">
-                  {day.toLocaleDateString('de-DE', { weekday: 'short' })}
-                </div>
-                <div className="text-sm font-semibold text-gray-900">
-                  {day.getDate()}
-                </div>
+                {apt}
               </div>
             ))}
           </div>
-        </div>
 
-        {/* Apartments */}
-        {apartments.map((apt, aptIdx) => {
-          const aptBookings = getBookingsForApartment(apt);
-          return (
-            <div key={apt} className="flex border-b border-gray-200 hover:bg-blue-50 transition">
-              <div className="w-32 flex-shrink-0 px-4 py-4 font-medium text-gray-900 bg-white border-r border-gray-200">
-                {apt}
-              </div>
-              <div className="flex-1 relative overflow-x-auto bg-white" style={{ minHeight: '80px' }}>
-                <div className="flex relative" style={{ minWidth: days.length * dayWidth }}>
-                  {/* Grid lines */}
-                  {days.map((_, i) => (
-                    <div
-                      key={`grid-${i}`}
-                      className="flex-shrink-0 border-r border-gray-100"
-                      style={{ width: dayWidth }}
-                    />
-                  ))}
-
-                  {/* Bookings */}
-                  <div className="absolute inset-0 px-2 py-2">
-                    {aptBookings.map((booking, bookingIdx) => {
-                      const pos = getBookingPosition(booking, days);
-                      if (!pos) return null;
-
-                      const colorClass = colors[bookingIdx % colors.length];
-
-                      return (
-                        <button
-                          key={booking.id}
-                          onClick={() => {
-                            setSelectedBooking(booking);
-                            setFormData(booking);
-                            setShowModal(true);
-                          }}
-                          className={`absolute top-2 ${colorClass} text-white text-xs px-3 py-2 rounded-lg font-medium hover:shadow-lg transition cursor-pointer truncate`}
-                          style={{
-                            left: `${pos.startDay * dayWidth + 8}px`,
-                            width: `${Math.max(pos.duration * dayWidth - 16, 60)}px`,
-                            top: `${bookingIdx * 35 + 8}px`,
-                          }}
-                          title={booking.guestName}
-                        >
-                          {booking.guestName}
-                        </button>
-                      );
-                    })}
+          {/* Days Grid (Scrollable) */}
+          <div className="flex-1 overflow-x-auto">
+            {/* Days Header */}
+            <div className="flex border-b border-gray-200 bg-gray-50">
+              {days.map((day, i) => (
+                <div
+                  key={i}
+                  className="flex-shrink-0 text-center py-3 border-r border-gray-200"
+                  style={{ width: dayWidth }}
+                >
+                  <div className="text-xs font-medium text-gray-600">
+                    {day.toLocaleDateString('de-DE', { weekday: 'short' })}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    {day.getDate()}
                   </div>
                 </div>
-              </div>
+              ))}
             </div>
-          );
-        })}
+
+            {/* Apartment Rows */}
+            {apartments.map((apt) => {
+              const aptBookings = getBookingsForApartment(apt);
+              return (
+                <div key={apt} className="flex border-b border-gray-200 hover:bg-blue-50 transition">
+                  {days.map((_, dayIdx) => (
+                    <div
+                      key={dayIdx}
+                      className="flex-shrink-0 border-r border-gray-200 relative"
+                      style={{ width: dayWidth, minHeight: '80px' }}
+                    >
+                      {/* Bookings for this day */}
+                      {aptBookings
+                        .filter((booking) => {
+                          const pos = getBookingPosition(booking, days);
+                          if (!pos) return false;
+                          return pos.startDay <= dayIdx && dayIdx < pos.startDay + pos.duration;
+                        })
+                        .map((booking, bookingIdx) => {
+                          const pos = getBookingPosition(booking, days);
+                          const row = getBookingRow(booking, apt, days);
+                          const colorClass = colors[bookingIdx % colors.length];
+                          const isFirstDay = pos.startDay === dayIdx;
+                          const isLastDay = dayIdx === pos.startDay + pos.duration - 1;
+
+                          // Calculate width
+                          let width = dayWidth - 4;
+                          if (isFirstDay && isLastDay) {
+                            width = dayWidth * pos.duration - 4;
+                          } else if (isFirstDay) {
+                            width = dayWidth - 4;
+                          } else if (isLastDay) {
+                            width = dayWidth - 4;
+                          }
+
+                          return (
+                            <button
+                              key={booking.id}
+                              onClick={() => {
+                                setSelectedBooking(booking);
+                                setFormData(booking);
+                                setShowModal(true);
+                              }}
+                              className={`absolute ${colorClass} text-white text-xs px-2 py-1 rounded font-medium hover:shadow-lg transition cursor-pointer truncate`}
+                              style={{
+                                left: isFirstDay ? '2px' : '0',
+                                top: `${row * 35 + 4}px`,
+                                width: `${width}px`,
+                                height: '30px',
+                                zIndex: row,
+                              }}
+                              title={booking.guestName}
+                            >
+                              {isFirstDay && booking.guestName}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Modal */}
