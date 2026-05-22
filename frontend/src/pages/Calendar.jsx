@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { ChevronLeft, ChevronRight, Plus, Star, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 
 function Calendar() {
   const [bookings, setBookings] = useState([]);
@@ -36,9 +36,10 @@ function Calendar() {
       const q = query(collection(db, 'bookings'), where('userId', '==', auth.currentUser.uid));
       const querySnapshot = await getDocs(q);
       const bookingsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log('📅 Buchungen geladen:', bookingsData);
       setBookings(bookingsData);
     } catch (error) {
-      console.error('Error fetching bookings:', error);
+      console.error('❌ Error fetching bookings:', error);
     }
   };
 
@@ -55,10 +56,14 @@ function Calendar() {
         createdAt: new Date(),
       };
 
+      console.log('💾 Speichere Buchung:', newBooking);
+
       if (selectedBooking) {
         await updateDoc(doc(db, 'bookings', selectedBooking.id), newBooking);
+        console.log('✏️ Buchung aktualisiert');
       } else {
         await addDoc(collection(db, 'bookings'), newBooking);
+        console.log('✅ Buchung hinzugefügt');
       }
 
       fetchBookings();
@@ -78,7 +83,8 @@ function Calendar() {
       });
       setSelectedBooking(null);
     } catch (error) {
-      console.error('Error saving booking:', error);
+      console.error('❌ Error saving booking:', error);
+      alert('Fehler beim Speichern: ' + error.message);
     }
   };
 
@@ -104,11 +110,23 @@ function Calendar() {
   };
 
   const isBookingOnDay = (apartment, date) => {
-    return bookings.filter(b => {
+    // Normalisiere das Datum auf Mitternacht
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+
+    const matches = bookings.filter(b => {
+      if (b.apartment !== apartment) return false;
+
       const checkIn = new Date(b.checkIn);
       const checkOut = new Date(b.checkOut);
-      return b.apartment === apartment && checkIn <= date && date < checkOut;
+      
+      checkIn.setHours(0, 0, 0, 0);
+      checkOut.setHours(0, 0, 0, 0);
+
+      return checkIn <= checkDate && checkDate < checkOut;
     });
+
+    return matches;
   };
 
   const days = getDaysInRange();
@@ -116,7 +134,10 @@ function Calendar() {
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-8">
-        <h2 className="text-3xl font-bold text-gray-900">Kalender</h2>
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900">Kalender</h2>
+          <p className="text-sm text-gray-600 mt-1">Total: {bookings.length} Buchung(en)</p>
+        </div>
         <button
           onClick={() => {
             setShowModal(true);
