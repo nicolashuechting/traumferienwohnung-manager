@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 
 function Calendar() {
   const [bookings, setBookings] = useState([]);
-  const [currentDate, setCurrentDate] = useState(new Date(2024, 4, 21));
+  const [currentDate, setCurrentDate] = useState(new Date(2026, 4, 22)); // 22.05.2026
   const [showModal, setShowModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [formData, setFormData] = useState({
@@ -25,6 +25,10 @@ function Calendar() {
   const apartments = [
     'Hus Upstalsboom 1', 'Hus Upstalsboom 2', 'Hus Upstalsboom 3', 'Hus Upstalsboom 4', 'Hus Upstalsboom 5', 'Hus Upstalsboom 6',
     'Haus Anne 1', 'Haus Anne 2', 'Haus Anne 3', 'Haus Anne 4', 'Haus Anne 5',
+  ];
+
+  const colors = [
+    'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-yellow-500', 'bg-pink-500', 'bg-indigo-500', 'bg-red-500', 'bg-cyan-500'
   ];
 
   useEffect(() => {
@@ -109,27 +113,38 @@ function Calendar() {
     });
   };
 
-  const isBookingOnDay = (apartment, date) => {
-    // Normalisiere das Datum auf Mitternacht
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
+  const getBookingsForApartment = (apartment) => {
+    return bookings.filter(b => b.apartment === apartment);
+  };
 
-    const matches = bookings.filter(b => {
-      if (b.apartment !== apartment) return false;
+  const getBookingPosition = (booking, days) => {
+    const checkIn = new Date(booking.checkIn);
+    const checkOut = new Date(booking.checkOut);
+    checkIn.setHours(0, 0, 0, 0);
+    checkOut.setHours(0, 0, 0, 0);
 
-      const checkIn = new Date(b.checkIn);
-      const checkOut = new Date(b.checkOut);
-      
-      checkIn.setHours(0, 0, 0, 0);
-      checkOut.setHours(0, 0, 0, 0);
-
-      return checkIn <= checkDate && checkDate < checkOut;
+    const startDay = days.findIndex(d => {
+      const dayNorm = new Date(d);
+      dayNorm.setHours(0, 0, 0, 0);
+      return dayNorm.getTime() === checkIn.getTime();
     });
 
-    return matches;
+    const endDay = days.findIndex(d => {
+      const dayNorm = new Date(d);
+      dayNorm.setHours(0, 0, 0, 0);
+      return dayNorm.getTime() === checkOut.getTime();
+    });
+
+    if (startDay === -1) return null;
+
+    return {
+      startDay,
+      duration: endDay === -1 ? days.length - startDay : Math.max(1, endDay - startDay),
+    };
   };
 
   const days = getDaysInRange();
+  const dayWidth = 100; // pixels per day
 
   return (
     <div className="p-8">
@@ -142,6 +157,19 @@ function Calendar() {
           onClick={() => {
             setShowModal(true);
             setSelectedBooking(null);
+            setFormData({
+              apartment: 'Hus Upstalsboom 1',
+              guestName: '',
+              email: '',
+              phone: '',
+              checkIn: '',
+              checkOut: '',
+              persons: 1,
+              hasDog: false,
+              specialRequests: '',
+              notes: '',
+              paid: false,
+            });
           }}
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
         >
@@ -149,9 +177,14 @@ function Calendar() {
         </button>
       </div>
 
+      {/* Navigation */}
       <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-lg border border-gray-200">
         <button
-          onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() - 14)))}
+          onClick={() => {
+            const newDate = new Date(currentDate);
+            newDate.setDate(newDate.getDate() - 14);
+            setCurrentDate(newDate);
+          }}
           className="p-2 hover:bg-gray-100 rounded-lg transition"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -160,55 +193,98 @@ function Calendar() {
           {days[0].toLocaleDateString('de-DE')} - {days[days.length - 1].toLocaleDateString('de-DE')}
         </span>
         <button
-          onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() + 14)))}
+          onClick={() => {
+            const newDate = new Date(currentDate);
+            newDate.setDate(newDate.getDate() + 14);
+            setCurrentDate(newDate);
+          }}
           className="p-2 hover:bg-gray-100 rounded-lg transition"
         >
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="px-4 py-3 text-left font-semibold text-gray-900 sticky left-0 bg-gray-50 z-10 w-32">Wohnung</th>
-              {days.map((day, i) => (
-                <th key={i} className="px-2 py-3 text-center font-semibold text-gray-700 whitespace-nowrap">
-                  <div className="text-xs">{day.toLocaleDateString('de-DE', { weekday: 'short' })}</div>
-                  <div className="text-sm">{day.getDate()}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {apartments.map((apt) => (
-              <tr key={apt} className="border-b border-gray-200 hover:bg-gray-50">
-                <td className="px-4 py-3 font-semibold text-gray-900 sticky left-0 bg-white z-10 w-32">{apt}</td>
-                {days.map((day, i) => {
-                  const dayBookings = isBookingOnDay(apt, day);
-                  return (
-                    <td key={i} className="px-2 py-3 text-center">
-                      {dayBookings.length > 0 && (
+      {/* Calendar Header */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        {/* Days Header */}
+        <div className="flex border-b border-gray-200">
+          <div className="w-32 flex-shrink-0 px-4 py-3 font-semibold text-gray-900 bg-gray-50 border-r border-gray-200">
+            Wohnung
+          </div>
+          <div className="flex overflow-x-auto">
+            {days.map((day, i) => (
+              <div
+                key={i}
+                className="flex-shrink-0 text-center py-3 border-r border-gray-200 bg-gray-50"
+                style={{ width: dayWidth }}
+              >
+                <div className="text-xs font-medium text-gray-600">
+                  {day.toLocaleDateString('de-DE', { weekday: 'short' })}
+                </div>
+                <div className="text-sm font-semibold text-gray-900">
+                  {day.getDate()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Apartments */}
+        {apartments.map((apt, aptIdx) => {
+          const aptBookings = getBookingsForApartment(apt);
+          return (
+            <div key={apt} className="flex border-b border-gray-200 hover:bg-blue-50 transition">
+              <div className="w-32 flex-shrink-0 px-4 py-4 font-medium text-gray-900 bg-white border-r border-gray-200">
+                {apt}
+              </div>
+              <div className="flex-1 relative overflow-x-auto bg-white" style={{ minHeight: '80px' }}>
+                <div className="flex relative" style={{ minWidth: days.length * dayWidth }}>
+                  {/* Grid lines */}
+                  {days.map((_, i) => (
+                    <div
+                      key={`grid-${i}`}
+                      className="flex-shrink-0 border-r border-gray-100"
+                      style={{ width: dayWidth }}
+                    />
+                  ))}
+
+                  {/* Bookings */}
+                  <div className="absolute inset-0 px-2 py-2">
+                    {aptBookings.map((booking, bookingIdx) => {
+                      const pos = getBookingPosition(booking, days);
+                      if (!pos) return null;
+
+                      const colorClass = colors[bookingIdx % colors.length];
+
+                      return (
                         <button
+                          key={booking.id}
                           onClick={() => {
-                            setSelectedBooking(dayBookings[0]);
-                            setFormData(dayBookings[0]);
+                            setSelectedBooking(booking);
+                            setFormData(booking);
                             setShowModal(true);
                           }}
-                          className="w-full bg-blue-600 text-white text-xs px-2 py-1 rounded hover:bg-blue-700 transition truncate"
+                          className={`absolute top-2 ${colorClass} text-white text-xs px-3 py-2 rounded-lg font-medium hover:shadow-lg transition cursor-pointer truncate`}
+                          style={{
+                            left: `${pos.startDay * dayWidth + 8}px`,
+                            width: `${Math.max(pos.duration * dayWidth - 16, 60)}px`,
+                            top: `${bookingIdx * 35 + 8}px`,
+                          }}
+                          title={booking.guestName}
                         >
-                          {dayBookings[0].guestName}
+                          {booking.guestName}
                         </button>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
+      {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-2xl w-full max-h-screen overflow-y-auto">
