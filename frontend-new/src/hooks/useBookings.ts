@@ -5,6 +5,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { properties } from "@/lib/properties";
+import { CHANNEL_OPTIONS } from "@/lib/channels";
 import type { Booking, BookingFormData, BookingStatus, FieldChange } from "@/types";
 
 // Schreibt einen Historien-Eintrag in die Sub-Collection bookings/{id}/history.
@@ -39,6 +40,19 @@ function resolvePropertyId(raw: Record<string, unknown>): string {
   return properties.find((p) => p.name === name)?.id ?? "ups-1";
 }
 
+// Normalisiert Alt-/Freitext-Kanalwerte (z.B. aus iCal-Feeds oder früherer Freitext-Eingabe)
+// auf die vier festen Optionen — nötig für konsistente Statistik-Auswertung.
+function resolveChannel(raw: Record<string, unknown>): string {
+  const c = String(raw.channel ?? "").trim();
+  const exact = CHANNEL_OPTIONS.find((opt) => opt.toLowerCase() === c.toLowerCase());
+  if (exact) return exact;
+  const lower = c.toLowerCase();
+  if (lower.includes("baltrum")) return "BaltrumDirekt";
+  if (lower.includes("traum") || lower.includes("ferienwohnung")) return "Traumferienwohnungen";
+  if (lower.includes("webseite") || lower.includes("website")) return "Webseite";
+  return "Manuell";
+}
+
 // Normalises a raw Firestore doc — handles both old (camelCase) and new (snake_case) shapes
 function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
   return {
@@ -55,9 +69,13 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
     is_paid:      Boolean(raw.is_paid ?? raw.paid),
     adults:       Number(raw.adults  ?? raw.persons    ?? 1),
     children:     Number(raw.children ?? 0),
+    kinderAlter:  Array.isArray(raw.kinderAlter) ? (raw.kinderAlter as unknown[]).map(Number) : [],
     dog:          Boolean(raw.dog    ?? raw.hasDog),
+    kinderbett:      Boolean(raw.kinderbett),
+    rausfallschutz:  Boolean(raw.rausfallschutz),
+    kinderstuhl:     Boolean(raw.kinderstuhl),
     price:        Number(raw.price   ?? 0),
-    channel:      (raw.channel ?? "Manuell") as string,
+    channel:      resolveChannel(raw),
     ical_uid:     (raw.ical_uid ?? "") as string,
     notes:        (raw.notes ?? raw.specialRequests ?? "") as string,
     source:       (raw.source ?? "manual") as Booking["source"],

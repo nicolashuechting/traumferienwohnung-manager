@@ -8,6 +8,8 @@ import { generateBookingNumber } from "@/lib/bookingNumber";
 import { buildConfirmationText } from "@/lib/confirmation";
 import { diffBooking, fieldLabel, formatFieldValue, formatHistoryDate } from "@/lib/bookingHistory";
 import { getTimes, hasFerryData, isNoBus, type FerryDirection } from "@/lib/ferry";
+import { findCollision } from "@/lib/bookingDrag";
+import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
 import type { Booking, BookingFormData, FieldChange, BookingHistoryEntry } from "@/types";
 
@@ -93,8 +95,6 @@ interface BookingModalProps {
   onClose: () => void;
 }
 
-const CHANNEL_OPTIONS = ["Manuell", "Ferienwohnungen.de", "Baltrumdirekt.de", "Airbnb", "Booking.com"];
-
 const EMPTY_FORM: BookingFormData = {
   property_id: "ups-1",
   booking_number: "",
@@ -108,7 +108,11 @@ const EMPTY_FORM: BookingFormData = {
   is_paid: false,
   adults: 2,
   children: 0,
+  kinderAlter: [],
   dog: false,
+  kinderbett: false,
+  rausfallschutz: false,
+  kinderstuhl: false,
   price: 0,
   channel: "Manuell",
   ical_uid: "",
@@ -125,6 +129,41 @@ function fmtDate(iso: string) {
   if (!iso) return "–";
   const [y, m, d] = iso.split("-");
   return `${d}.${m}.${y}`;
+}
+
+// Ein Alter-Eingabefeld pro Kind, synchron zur Kinderzahl
+function ChildrenAgesInput({
+  count, ages, onChange,
+}: {
+  count: number;
+  ages: number[];
+  onChange: (ages: number[]) => void;
+}) {
+  if (count <= 0) return null;
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Kinder-Alter</label>
+      <div className="grid grid-cols-3 gap-3">
+        {Array.from({ length: count }, (_, i) => (
+          <div key={i}>
+            <label className="block text-xs text-gray-500 mb-1">Kind {i + 1}: Alter</label>
+            <input
+              type="number"
+              min={0}
+              max={17}
+              value={ages[i] || ""}
+              onChange={(e) => {
+                const next = [...ages];
+                next[i] = parseInt(e.target.value) || 0;
+                onChange(next);
+              }}
+              className={FERRY_INPUT_CLS}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // Read-only Zeile in der Anzeige
@@ -151,6 +190,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const [pendingSave, setPendingSave] = useState<{ data: BookingFormData; changes: FieldChange[] } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [restoreEntry, setRestoreEntry] = useState<BookingHistoryEntry | null>(null);
+  const [pendingCollision, setPendingCollision] = useState<{ data: BookingFormData; conflict: Booking } | null>(null);
 
   const { data: allBookings = [] } = useBookings();
   const { data: trashedBookings = [] } = useTrashedBookings();
@@ -189,10 +229,22 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setPendingSave(null);
     setShowHistory(false);
     setRestoreEntry(null);
+    setPendingCollision(null);
   }, [open, booking, prefill]);
 
   const set = <K extends keyof BookingFormData>(key: K, value: BookingFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  // Kinderzahl ändern: kinderAlter mitführen — beim Verringern vom Ende
+  // abschneiden, beim Erhöhen bestehende Alter erhalten und neue Felder mit 0 auffüllen.
+  const setChildrenCount = (n: number) => {
+    const count = Math.max(0, Math.min(20, n));
+    setForm((prev) => {
+      const ages = prev.kinderAlter.slice(0, count);
+      while (ages.length < count) ages.push(0);
+      return { ...prev, children: count, kinderAlter: ages };
+    });
+  };
 
   const ensureNumber = (f: BookingFormData): string =>
     f.booking_number || generateBookingNumber(f.property_id, f.check_in, existingNumbers);
@@ -222,6 +274,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       if (e.key !== "Escape") return;
       e.stopPropagation();
       if (restoreEntry) { setRestoreEntry(null); return; }
+      if (pendingCollision) { setPendingCollision(null); return; }
       if (showSaveDiff) { setShowSaveDiff(false); return; }
       if (showHistory) { setShowHistory(false); return; }
       if (mode === "edit") { attemptCancel(); return; }
@@ -229,7 +282,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, mode, showSaveDiff, showHistory, restoreEntry, attemptCancel, onClose]);
+  }, [open, mode, showSaveDiff, showHistory, restoreEntry, pendingCollision, attemptCancel, onClose]);
 
   if (!open) return null;
 
@@ -274,11 +327,8 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     return true;
   };
 
-  // "Speichern" im Bearbeiten-Modus
-  const handleSaveClick = async () => {
-    if (!validate()) return;
-    const dataToSave: BookingFormData = { ...form, booking_number: ensureNumber(form) };
-
+  // Legt die Buchung an bzw. öffnet den Änderungs-Diff — nach bestandener Kollisionsprüfung.
+  const proceedSave = async (dataToSave: BookingFormData) => {
     if (!current) {
       // Neue Buchung: direkt anlegen (kein Diff)
       try {
@@ -292,6 +342,32 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     if (changes.length === 0) { setMode("view"); return; }
     setPendingSave({ data: dataToSave, changes });
     setShowSaveDiff(true);
+  };
+
+  // "Speichern" im Bearbeiten-Modus
+  const handleSaveClick = async () => {
+    if (!validate()) return;
+    const dataToSave: BookingFormData = { ...form, booking_number: ensureNumber(form) };
+
+    const conflict = findCollision(
+      allBookings, dataToSave.property_id, current?.id ?? "",
+      dataToSave.check_in, dataToSave.check_out,
+      dataToSave.ferry_time, dataToSave.ferry_time_departure,
+    );
+    if (conflict) {
+      setPendingCollision({ data: dataToSave, conflict });
+      return;
+    }
+
+    await proceedSave(dataToSave);
+  };
+
+  // Bestätigtes Speichern trotz erkannter Kollision
+  const confirmCollisionSave = async () => {
+    if (!pendingCollision) return;
+    const { data } = pendingCollision;
+    setPendingCollision(null);
+    await proceedSave(data);
   };
 
   // Bestätigtes Speichern aus dem Diff-Dialog
@@ -452,7 +528,21 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 <ViewRow label="Personen">
                   {persons} {current.children > 0 && <span className="text-gray-400">({current.adults} Erw. + {current.children} Ki.)</span>}
                 </ViewRow>
+                {current.children > 0 && current.kinderAlter.length > 0 && (
+                  <ViewRow label="Kinder">
+                    {current.children} {current.children === 1 ? "Kind" : "Kinder"} ({current.kinderAlter.join(", ")} Jahre)
+                  </ViewRow>
+                )}
                 <ViewRow label="Hund">{current.dog ? "Ja 🐕" : "Nein"}</ViewRow>
+                {(current.kinderbett || current.rausfallschutz || current.kinderstuhl) && (
+                  <ViewRow label="Ausstattung">
+                    {[
+                      current.kinderbett && "Kinderbett",
+                      current.rausfallschutz && "Rausfallschutz",
+                      current.kinderstuhl && "Kinderstuhl",
+                    ].filter(Boolean).join(", ")}
+                  </ViewRow>
+                )}
               </div>
               {current.notes && (
                 <ViewRow label="Notizen"><span className="whitespace-pre-wrap">{current.notes}</span></ViewRow>
@@ -567,10 +657,9 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Buchungskanal</label>
-                  <input type="text" list="channel-options" value={form.channel} onChange={(e) => set("channel", e.target.value)} placeholder="Manuell" className={inputCls} />
-                  <datalist id="channel-options">
-                    {CHANNEL_OPTIONS.map((c) => <option key={c} value={c} />)}
-                  </datalist>
+                  <select value={form.channel} onChange={(e) => set("channel", e.target.value)} className={inputCls}>
+                    {CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
               </div>
 
@@ -588,7 +677,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Kinder</label>
-                  <input type="number" min={0} max={20} value={form.children} onChange={(e) => set("children", parseInt(e.target.value) || 0)} className={inputCls} />
+                  <input type="number" min={0} max={20} value={form.children} onChange={(e) => setChildrenCount(parseInt(e.target.value) || 0)} className={inputCls} />
                 </div>
                 <div className="flex flex-col justify-end gap-2 pb-1">
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -600,6 +689,30 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     <span className="text-sm font-medium text-gray-700">
                       Hund 🐕 {!selectedProperty?.allowsDogs && <span className="text-red-500 text-xs">(n. erlaubt)</span>}
                     </span>
+                  </label>
+                </div>
+              </div>
+
+              <ChildrenAgesInput
+                count={form.children}
+                ages={form.kinderAlter}
+                onChange={(ages) => set("kinderAlter", ages)}
+              />
+
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-gray-700 mb-3">Benötigte Ausstattung</p>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={form.kinderbett} onChange={(e) => set("kinderbett", e.target.checked)} className="w-4 h-4 rounded" />
+                    <span className="text-sm font-medium text-gray-700">Kinderbett</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={form.rausfallschutz} onChange={(e) => set("rausfallschutz", e.target.checked)} className="w-4 h-4 rounded" />
+                    <span className="text-sm font-medium text-gray-700">Rausfallschutz</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={form.kinderstuhl} onChange={(e) => set("kinderstuhl", e.target.checked)} className="w-4 h-4 rounded" />
+                    <span className="text-sm font-medium text-gray-700">Kinderstuhl</span>
                   </label>
                 </div>
               </div>
@@ -645,6 +758,30 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
             >
               <Trash2 className="w-4 h-4" /> Löschen
             </button>
+          </div>
+        )}
+
+        {/* ── Overlay: Terminüberschneidung bestätigen ── */}
+        {pendingCollision && (
+          <div className="absolute inset-0 z-30 bg-black/30 flex items-center justify-center rounded-xl p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5">
+              <h3 className="text-base font-bold text-gray-900 mb-3">Terminüberschneidung</h3>
+              <p className="text-sm text-gray-700 mb-5">
+                Diese Buchung überschneidet sich mit{" "}
+                <span className="font-semibold">{pendingCollision.conflict.guest_name || "einer anderen Buchung"}</span>{" "}
+                ({fmtDate(pendingCollision.conflict.check_in)} – {fmtDate(pendingCollision.conflict.check_out)}). Trotzdem speichern?
+              </p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setPendingCollision(null)} disabled={isLoading}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition disabled:opacity-50">
+                  Abbrechen
+                </button>
+                <button onClick={confirmCollisionSave} disabled={isLoading}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition disabled:opacity-50">
+                  {isLoading ? "Speichert…" : "Trotzdem speichern"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

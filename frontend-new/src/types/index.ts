@@ -27,7 +27,11 @@ export interface Booking {
   is_paid: boolean;
   adults: number;
   children: number;
+  kinderAlter: number[]; // Alter pro Kind, z.B. [3, 7, 10]
   dog: boolean;
+  kinderbett: boolean;
+  rausfallschutz: boolean;
+  kinderstuhl: boolean;
   price: number;       // EUR, 0 = nicht angegeben
   channel: string;     // "Manuell" | "Ferienwohnungen.de" | "Baltrumdirekt.de" | …
   ical_uid: string;    // iCal UID for deduplication, "" for manual bookings

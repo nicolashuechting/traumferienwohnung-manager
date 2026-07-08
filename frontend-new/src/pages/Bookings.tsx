@@ -168,11 +168,10 @@ function DetailRow({ booking, onEdit, onClose }: { booking: Booking; onEdit: () 
 // ── Main ───────────────────────────────────────────────────────────────────────
 // Channel badge colours
 const CHANNEL_COLORS: Record<string, string> = {
-  "Manuell":            "bg-gray-100 text-gray-600",
-  "Ferienwohnungen.de": "bg-amber-100 text-amber-700",
-  "Baltrumdirekt.de":   "bg-teal-100 text-teal-700",
-  "Airbnb":             "bg-rose-100 text-rose-700",
-  "Booking.com":        "bg-blue-100 text-blue-700",
+  "Manuell":               "bg-gray-100 text-gray-600",
+  "BaltrumDirekt":         "bg-teal-100 text-teal-700",
+  "Traumferienwohnungen":  "bg-amber-100 text-amber-700",
+  "Webseite":              "bg-blue-100 text-blue-700",
 };
 function channelColor(ch: string) {
   return CHANNEL_COLORS[ch] ?? "bg-purple-100 text-purple-700";

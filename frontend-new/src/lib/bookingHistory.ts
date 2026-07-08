@@ -32,7 +32,14 @@ export const HISTORY_FIELDS: Record<string, FieldDef> = {
   is_paid:        { label: "Bezahlt",      format: (v) => (v ? "Ja" : "Nein") },
   adults:         { label: "Erwachsene",   format: (v) => String(v) },
   children:       { label: "Kinder",       format: (v) => String(v) },
+  kinderAlter:    { label: "Kinderalter",  format: (v) => {
+    const s = String(v ?? "");
+    return s ? `${s.split(",").join(", ")} Jahre` : "–";
+  } },
   dog:            { label: "Hund",         format: (v) => (v ? "Ja" : "Nein") },
+  kinderbett:     { label: "Kinderbett",       format: (v) => (v ? "Ja" : "Nein") },
+  rausfallschutz: { label: "Rausfallschutz",   format: (v) => (v ? "Ja" : "Nein") },
+  kinderstuhl:    { label: "Kinderstuhl",      format: (v) => (v ? "Ja" : "Nein") },
   price:          { label: "Preis",        format: (v) => `${Number(v).toLocaleString("de-DE")} €` },
   channel:        { label: "Kanal",        format: (v) => String(v || "–") },
   notes:          { label: "Notizen",      format: (v) => String(v || "–") },
@@ -60,10 +67,13 @@ export function diffBooking(
   const changes: FieldChange[] = [];
   for (const f of TRACKED) {
     if (!(f in newData)) continue;
-    const from = (oldB as Record<string, Primitive | undefined>)[f];
-    const to   = (newData as Record<string, Primitive | undefined>)[f];
+    let from: unknown = (oldB as Record<string, unknown>)[f];
+    let to: unknown = (newData as Record<string, unknown>)[f];
+    // Arrays (z.B. kinderAlter) als String vergleichen/speichern statt per Referenz
+    if (Array.isArray(from)) from = from.join(",");
+    if (Array.isArray(to)) to = to.join(",");
     if (from === to) continue;
-    changes.push({ field: f, from: from ?? "", to: to ?? "" });
+    changes.push({ field: f, from: (from ?? "") as Primitive, to: (to ?? "") as Primitive });
   }
   return changes;
 }

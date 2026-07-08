@@ -82,6 +82,24 @@ export function spansOverlap(a: StaySpan, b: StaySpan): boolean {
   return false;
 }
 
+// Findet die erste Buchung derselben Wohnung, die sich mit [check_in, check_out) überschneidet.
+export function findCollision(
+  bookings: Booking[],
+  propertyId: string,
+  excludeId: string,
+  check_in: string,
+  check_out: string,
+  ferry_time?: string,
+  ferry_time_departure?: string,
+): Booking | undefined {
+  return bookings.find((b) =>
+    b.id !== excludeId &&
+    b.property_id === propertyId &&
+    b.check_in && b.check_out &&
+    spansOverlap({ check_in, check_out, ferry_time, ferry_time_departure }, b)
+  );
+}
+
 // Überschneidet sich [check_in, check_out) mit einer anderen Buchung derselben Wohnung?
 export function hasCollision(
   bookings: Booking[],
@@ -92,10 +110,5 @@ export function hasCollision(
   ferry_time?: string,
   ferry_time_departure?: string,
 ): boolean {
-  return bookings.some((b) =>
-    b.id !== excludeId &&
-    b.property_id === propertyId &&
-    b.check_in && b.check_out &&
-    spansOverlap({ check_in, check_out, ferry_time, ferry_time_departure }, b)
-  );
+  return !!findCollision(bookings, propertyId, excludeId, check_in, check_out, ferry_time, ferry_time_departure);
 }
