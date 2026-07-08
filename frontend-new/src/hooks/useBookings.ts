@@ -24,7 +24,7 @@ async function writeHistory(bookingId: string, changes: FieldChange[], note?: st
   }
 }
 
-const VALID_STATUSES: BookingStatus[] = ["anfrage", "bestaetigt", "bezahlt", "problem", "abgeschlossen"];
+const VALID_STATUSES: BookingStatus[] = ["anfrage", "reserviert", "bestaetigt", "bezahlt", "problem", "abgeschlossen"];
 
 // Status für Altbestand ohne status-Feld ableiten: bezahlt → "bezahlt", sonst "anfrage"
 function resolveStatus(raw: Record<string, unknown>): BookingStatus {

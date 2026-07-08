@@ -7,7 +7,8 @@ export interface Property {
 
 // Workflow-Status einer Buchung
 export type BookingStatus =
-  | "anfrage"       // Grau  – eingegangen, unbestätigt
+  | "anfrage"       // Hellgrau – eingegangen, unbestätigt
+  | "reserviert"    // Dunkelgrau – Anfrage beim Mieter, wartet auf Rückmeldung
   | "bestaetigt"    // Blau  – bestätigt, Bestätigung verschickt
   | "bezahlt"       // Grün  – Zahlung eingegangen
   | "problem"       // Gelb  – z.B. falscher Betrag

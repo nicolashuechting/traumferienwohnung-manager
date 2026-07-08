@@ -12,9 +12,16 @@ export const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
   anfrage: {
     value: "anfrage",
     label: "Anfrage",
-    barColor: "#6b7280",
-    badgeClass: "bg-gray-100 text-gray-700 border border-gray-200",
-    dotColor: "#6b7280",
+    barColor: "#9ca3af",
+    badgeClass: "bg-gray-50 text-gray-500 border border-gray-200",
+    dotColor: "#9ca3af",
+  },
+  reserviert: {
+    value: "reserviert",
+    label: "Reserviert",
+    barColor: "#4b5563",
+    badgeClass: "bg-gray-200 text-gray-800 border border-gray-300",
+    dotColor: "#4b5563",
   },
   bestaetigt: {
     value: "bestaetigt",
@@ -48,7 +55,7 @@ export const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
 
 // Reihenfolge im Workflow (für Auswahl/Anzeige)
 export const STATUS_ORDER: BookingStatus[] = [
-  "anfrage", "bestaetigt", "bezahlt", "problem", "abgeschlossen",
+  "anfrage", "reserviert", "bestaetigt", "bezahlt", "problem", "abgeschlossen",
 ];
 
 // Status, bei denen ein Verschieben (Datumsänderung) eine Warnung auslöst

@@ -45,6 +45,10 @@ function totalNightsB(b: Booking) {
   ));
 }
 
+// Nur tatsächlich eingegangenes/abgeschlossenes Geld zählt als Umsatz —
+// Anfragen, Reservierungen und offene Bestätigungen bleiben außen vor.
+const REVENUE_STATUSES: Booking["status"][] = ["bezahlt", "abgeschlossen"];
+
 function calcStats(bookings: Booking[], filteredProps: typeof properties, y: number, m?: number) {
   const inPeriod     = bookings.filter((b) => m ? bookingInMonth(b, y, m) : bookingInYear(b, y));
   const bookedNights = bookings.reduce((s, b) => s + (m ? nightsInMonth(b, y, m) : nightsInYear(b, y)), 0);
@@ -53,7 +57,9 @@ function calcStats(bookings: Booking[], filteredProps: typeof properties, y: num
   return {
     bookings: inPeriod.length,
     nights:   bookedNights,
-    revenue:  inPeriod.reduce((s, b) => s + (b.price ?? 0), 0),
+    revenue:  inPeriod
+      .filter((b) => REVENUE_STATUSES.includes(b.status))
+      .reduce((s, b) => s + (b.price ?? 0), 0),
     occupancy: Math.round(occupancy * 10) / 10,
   };
 }

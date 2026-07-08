@@ -11,7 +11,7 @@ import { getTimes, hasFerryData, isNoBus, type FerryDirection } from "@/lib/ferr
 import { findCollision } from "@/lib/bookingDrag";
 import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
-import type { Booking, BookingFormData, FieldChange, BookingHistoryEntry } from "@/types";
+import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry } from "@/types";
 
 const FERRY_INPUT_CLS = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 
@@ -291,6 +291,18 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setShowConfirmText(true);
   };
 
+  const handleReserve = () => {
+    setForm((prev) => ({ ...prev, status: "reserviert" }));
+  };
+
+  // Status-Pille anklicken: Rückwärtsschritte im Workflow (z.B. reserviert → anfrage)
+  // brauchen eine kurze Bestätigung, Vorwärtsschritte greifen direkt.
+  const handleStatusPillClick = (s: BookingStatus) => {
+    const isBackward = STATUS_ORDER.indexOf(s) < STATUS_ORDER.indexOf(form.status);
+    if (isBackward && !window.confirm("Status zurücksetzen?")) return;
+    set("status", s);
+  };
+
   const effective = mode === "edit" ? form : current ? formOf(current) : form;
   const confirmationText = buildConfirmationText({
     ...(current ?? ({} as Booking)),
@@ -500,7 +512,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusConfig(current.status).dotColor }} />
                   {statusConfig(current.status).label}
                 </span>
-                {current.status !== "anfrage" && current.status !== "problem" && (
+                {current.status !== "anfrage" && current.status !== "reserviert" && current.status !== "problem" && (
                   <button
                     onClick={() => setShowConfirmText((v) => !v)}
                     className="text-sm font-medium text-blue-600 hover:text-blue-700"
@@ -570,7 +582,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                       <button
                         key={s}
                         type="button"
-                        onClick={() => set("status", s)}
+                        onClick={() => handleStatusPillClick(s)}
                         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition
                           ${active ? cfg.badgeClass : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"}`}
                       >
@@ -580,6 +592,15 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     );
                   })}
                 </div>
+                {form.status === "anfrage" && (
+                  <button
+                    type="button"
+                    onClick={handleReserve}
+                    className="mt-3 flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-gray-600 hover:bg-gray-700 rounded-lg transition"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Als Reserviert markieren
+                  </button>
+                )}
                 {form.status !== "bestaetigt" && form.status !== "bezahlt" && form.status !== "abgeschlossen" && (
                   <button
                     type="button"
@@ -589,7 +610,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     <CheckCircle2 className="w-4 h-4" /> Buchung bestätigen
                   </button>
                 )}
-                {form.status !== "anfrage" && form.status !== "problem" && (
+                {form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
                   <button
                     type="button"
                     onClick={() => setShowConfirmText((v) => !v)}
