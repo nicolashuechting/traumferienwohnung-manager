@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Calendar, Users, Settings, LogOut, Menu, X, User, BookOpen, Home, TrendingUp, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useAutoCompleteBookings } from "@/hooks/useBookings";
 
 const NAV = [
   { path: "/",          label: "Home",          Icon: Home },
@@ -19,6 +20,7 @@ export function Layout() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
+  useAutoCompleteBookings();
 
   return (
     <div className="flex h-screen bg-gray-50">

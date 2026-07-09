@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   collection, query, where, getDocs,
@@ -6,6 +7,7 @@ import {
 import { db, auth } from "@/lib/firebase";
 import { properties } from "@/lib/properties";
 import { CHANNEL_OPTIONS } from "@/lib/channels";
+import { diffBooking } from "@/lib/bookingHistory";
 import type { Booking, BookingFormData, BookingStatus, FieldChange } from "@/types";
 
 // Schreibt einen Historien-Eintrag in die Sub-Collection bookings/{id}/history.
@@ -169,6 +171,40 @@ export function useUpdateBooking() {
       qc.invalidateQueries({ queryKey: ["bookingHistory", vars.id] });
     },
   });
+}
+
+// Lokales Datum – bewusst kein toISOString() (verschiebt in Zeitzonen mit positivem
+// UTC-Offset, z.B. Deutschland, das Datum um einen Tag zurück).
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Setzt bezahlte Buchungen nach der Abreise automatisch auf "abgeschlossen" — alle
+// anderen Status (anfrage, reserviert, bestaetigt, problem) deuten auf noch offene
+// Punkte hin und müssen bewusst manuell abgeschlossen werden.
+export function useAutoCompleteBookings() {
+  const { data: bookings } = useBookings();
+  const update = useUpdateBooking();
+  const attempted = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!bookings) return;
+    const today = todayISO();
+    bookings
+      .filter((b) => b.status === "bezahlt" && b.check_out < today && !attempted.current.has(b.id))
+      .forEach((b) => {
+        attempted.current.add(b.id);
+        update.mutate({
+          id: b.id,
+          data: { status: "abgeschlossen" },
+          history: {
+            changes: diffBooking(b, { status: "abgeschlossen" }),
+            note: "Automatisch abgeschlossen (Abreisedatum überschritten)",
+          },
+        });
+      });
+  }, [bookings, update]);
 }
 
 // Verschiebt eine Buchung in den Papierkorb: Dokument bleibt vollständig erhalten,
