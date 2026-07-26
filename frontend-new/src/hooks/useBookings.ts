@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  collection, query, where, getDocs,
+  collection, getDocs,
   addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
@@ -92,13 +92,11 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
 // useTrashedBookings() teilen sich diesen einen Fetch/Cache-Eintrag und
 // filtern nur per `select` — vermeidet einen zweiten Firestore-Read für den Papierkorb.
 async function fetchBookings(): Promise<Booking[]> {
-  const uid = auth.currentUser?.uid;
-  if (!uid) return [];
-  const q = query(collection(db, "bookings"), where("userId", "==", uid));
-  const snap = await getDocs(q);
+  if (!auth.currentUser) return [];
+  const snap = await getDocs(collection(db, "bookings"));
   return snap.docs
     .map((d) => normaliseBooking(d.id, d.data() as Record<string, unknown>))
-    .filter((b) => b.check_in && b.check_out); // skip corrupt docs
+    .filter((b) => b.check_in && b.check_out);
 }
 
 export function useBookings() {
