@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 // ── Konfiguration ──────────────────────────────────────────────────────────────
 
 const PROPERTY_IDS = [
-  "ups-1","ups-2","ups-3","ups-4","ups-5","ups-6",
+  "ups-2","ups-3","ups-4","ups-5","ups-6","ups-7",
   "anne-1","anne-2","anne-3","anne-4","anne-5",
 ];
 
@@ -261,7 +261,7 @@ export function Seed() {
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
         <strong>Hinweis:</strong> Diese Seite nur einmal ausführen. Die Buchungen werden mit IDs wie
-        <code className="mx-1 bg-amber-100 px-1 rounded font-mono text-xs">seed_ups-1_20250615</code>
+        <code className="mx-1 bg-amber-100 px-1 rounded font-mono text-xs">seed_ups-2_20250615</code>
         gespeichert und können anschliessend einzeln oder per Firestore-Konsole gelöscht werden.
       </div>
 

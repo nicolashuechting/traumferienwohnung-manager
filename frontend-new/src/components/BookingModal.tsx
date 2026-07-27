@@ -96,7 +96,7 @@ interface BookingModalProps {
 }
 
 const EMPTY_FORM: BookingFormData = {
-  property_id: "ups-1",
+  property_id: "ups-2",
   booking_number: "",
   status: "anfrage",
   guest_name: "",

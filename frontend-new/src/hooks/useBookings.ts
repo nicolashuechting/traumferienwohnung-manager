@@ -35,11 +35,11 @@ function resolveStatus(raw: Record<string, unknown>): BookingStatus {
   return raw.is_paid || raw.paid ? "bezahlt" : "anfrage";
 }
 
-// Maps old apartment name (e.g. "Upstalsboom 1") to new property id (e.g. "ups-1")
+// Maps old apartment name (e.g. "Upstalsboom 2") to new property id (e.g. "ups-2")
 function resolvePropertyId(raw: Record<string, unknown>): string {
   if (raw.property_id && typeof raw.property_id === "string") return raw.property_id;
   const name = (raw.apartment ?? raw.propertyName ?? "") as string;
-  return properties.find((p) => p.name === name)?.id ?? "ups-1";
+  return properties.find((p) => p.name === name)?.id ?? "ups-2";
 }
 
 // Normalisiert Alt-/Freitext-Kanalwerte (z.B. aus iCal-Feeds oder früherer Freitext-Eingabe)
