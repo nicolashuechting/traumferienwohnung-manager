@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, AlertCircle } from "lucide-react";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { isEmailAllowed } from "@/lib/whitelist";
 
 export function Register() {
   const [email, setEmail] = useState("");
@@ -19,6 +20,14 @@ export function Register() {
     setError("");
     setLoading(true);
     try {
+      const allowed = await isEmailAllowed(email);
+      if (!allowed) {
+        setError(
+          "Diese E-Mail-Adresse ist nicht für die Nutzung der App freigeschaltet. " +
+          "Bitte wenden Sie sich an den Administrator."
+        );
+        return;
+      }
       await createUserWithEmailAndPassword(auth, email, password);
       navigate("/");
     } catch (err) {
