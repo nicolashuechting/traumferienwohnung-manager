@@ -36,7 +36,7 @@ export const HISTORY_FIELDS: Record<string, FieldDef> = {
     const s = String(v ?? "");
     return s ? `${s.split(",").join(", ")} Jahre` : "–";
   } },
-  dog:            { label: "Hund",         format: (v) => (v ? "Ja" : "Nein") },
+  dogCount:       { label: "Hunde",        format: (v) => (Number(v) > 0 ? String(v) : "Nein") },
   kinderbett:     { label: "Kinderbett",       format: (v) => (v ? "Ja" : "Nein") },
   rausfallschutz: { label: "Rausfallschutz",   format: (v) => (v ? "Ja" : "Nein") },
   kinderstuhl:    { label: "Kinderstuhl",      format: (v) => (v ? "Ja" : "Nein") },

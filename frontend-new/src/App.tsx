@@ -11,6 +11,7 @@ import { Bookings } from "@/pages/Bookings";
 import { Analytics } from "@/pages/Analytics";
 import { Guests } from "@/pages/Guests";
 import { Settings } from "@/pages/Settings";
+import { PriceSettings } from "@/pages/PriceSettings";
 import { Trash } from "@/pages/Trash";
 import { Seed } from "@/pages/Seed";
 
@@ -54,6 +55,7 @@ function AppRoutes() {
         <Route path="/guests" element={<Guests />} />
         <Route path="/trash" element={<Trash />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/preise" element={<PriceSettings />} />
         <Route path="/seed" element={<Seed />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

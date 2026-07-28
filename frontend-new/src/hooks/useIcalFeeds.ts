@@ -115,11 +115,12 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       adults:       1,
       children:     0,
       kinderAlter:  [],
-      dog:          false,
+      dogCount:     0,
       kinderbett:      false,
       rausfallschutz:  false,
       kinderstuhl:     false,
       price:        0,
+      priceIsManual: true, // iCal-Importe haben keinen eigenen Preis, nicht automatisch überschreiben
       channel:      feed.name,
       ical_uid:     ev.uid,
       notes:        ev.description,

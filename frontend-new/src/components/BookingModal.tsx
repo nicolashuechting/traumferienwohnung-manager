@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw } from "lucide-react";
 import { properties } from "@/lib/properties";
 import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings, useTrashedBookings } from "@/hooks/useBookings";
 import { useBookingHistory } from "@/hooks/useBookingHistory";
+import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
 import { buildConfirmationText } from "@/lib/confirmation";
@@ -10,8 +11,10 @@ import { diffBooking, fieldLabel, formatFieldValue, formatHistoryDate } from "@/
 import { getTimes, hasFerryData, isNoBus, type FerryDirection } from "@/lib/ferry";
 import { findCollision } from "@/lib/bookingDrag";
 import { CHANNEL_OPTIONS } from "@/lib/channels";
+import { priceGroupOf } from "@/lib/priceGroups";
+import { calculatePrice, type PriceResult } from "@/lib/pricing";
 import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
-import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry } from "@/types";
+import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown } from "@/types";
 
 const FERRY_INPUT_CLS = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 
@@ -109,11 +112,12 @@ const EMPTY_FORM: BookingFormData = {
   adults: 2,
   children: 0,
   kinderAlter: [],
-  dog: false,
+  dogCount: 0,
   kinderbett: false,
   rausfallschutz: false,
   kinderstuhl: false,
   price: 0,
+  priceIsManual: false,
   channel: "Manuell",
   ical_uid: "",
   notes: "",
@@ -166,6 +170,177 @@ function ChildrenAgesInput({
   );
 }
 
+// Fasst aufeinanderfolgende Nächte mit gleicher Saison/Preis zusammen,
+// z.B. "6 Nächte × 137,00 € (Hauptsaison) + Reinigung 60,00 € + Hund 30,00 €"
+function priceSummaryText(r: {
+  nights: PriceBreakdown["nights"];
+  cleaningFee: number;
+  extraFees: PriceBreakdown["extraFees"];
+  dogFee: number;
+}): string {
+  const groups: { label: string; price: number; count: number }[] = [];
+  for (const n of r.nights) {
+    const last = groups[groups.length - 1];
+    if (last && last.label === n.seasonLabel && last.price === n.price) last.count++;
+    else groups.push({ label: n.seasonLabel, price: n.price, count: 1 });
+  }
+  const parts = groups.map((g) => `${g.count} Nacht${g.count === 1 ? "" : "e"} × ${g.price.toLocaleString("de-DE")} € (${g.label})`);
+  if (r.cleaningFee > 0) parts.push(`Reinigung ${r.cleaningFee.toLocaleString("de-DE")} €`);
+  r.extraFees.forEach((f) => { if (f.amount > 0) parts.push(`${f.label} ${f.amount.toLocaleString("de-DE")} €`); });
+  if (r.dogFee > 0) parts.push(`Hund ${r.dogFee.toLocaleString("de-DE")} €`);
+  return parts.join(" + ") || "Keine Preisdaten für diesen Zeitraum.";
+}
+
+// Preisfeld: fette editierbare Summe + kleine graue Erklärung, Detail-Panel
+// standardmäßig eingeklappt und nur per Klick auf die Erklärung sichtbar.
+// Zusätzlich: Übernachtungspreis-Override — pauschal für die ganze Buchung
+// (über Saisongrenzen hinweg), Reinigung/Hund/Zusatzgebühren bleiben gleich.
+function PriceSection({
+  form, set, autoResult,
+}: {
+  form: BookingFormData;
+  set: <K extends keyof BookingFormData>(key: K, value: BookingFormData[K]) => void;
+  autoResult: PriceResult | null;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const existingOverrideNight = form.priceBreakdown?.nights?.find((n) => n.originalPrice !== undefined);
+  const [overrideActive, setOverrideActive] = useState(!!existingOverrideNight);
+  const [overrideRate, setOverrideRate] = useState(existingOverrideNight ? String(existingOverrideNight.price) : "");
+
+  const handleRecalculate = () => {
+    if (!autoResult) return;
+    if (overrideActive) {
+      const rate = parseFloat(overrideRate);
+      if (Number.isNaN(rate)) return;
+      const nights = autoResult.nights.map((n) => ({ ...n, price: rate, originalPrice: n.price }));
+      const extraFeesTotal = autoResult.extraFees.reduce((s, f) => s + f.amount, 0);
+      const total = rate * nights.length + autoResult.cleaningFee + extraFeesTotal + autoResult.dogFee;
+      set("price", total);
+      set("priceIsManual", true);
+      set("priceBreakdown", {
+        nights,
+        cleaningFee: autoResult.cleaningFee,
+        extraFees: autoResult.extraFees,
+        dogFee: autoResult.dogFee,
+      });
+      return;
+    }
+    set("price", autoResult.total);
+    set("priceIsManual", false);
+    set("priceBreakdown", {
+      nights: autoResult.nights,
+      cleaningFee: autoResult.cleaningFee,
+      extraFees: autoResult.extraFees,
+      dogFee: autoResult.dogFee,
+    });
+  };
+
+  // Solange der zuletzt angewendete Override noch zur aktuellen Nächteliste passt
+  // (gleiche Anzahl), zeigen wir ihn an — sonst die frische automatische Berechnung.
+  const overrideNights = form.priceBreakdown?.nights?.some((n) => n.originalPrice !== undefined)
+    && form.priceBreakdown.nights.length === (autoResult?.nights.length ?? form.priceBreakdown.nights.length)
+    ? form.priceBreakdown.nights
+    : null;
+  const displayNights = overrideNights ?? autoResult?.nights ?? [];
+  const displayFees = overrideNights
+    ? { cleaningFee: form.priceBreakdown!.cleaningFee, extraFees: form.priceBreakdown!.extraFees, dogFee: form.priceBreakdown!.dogFee }
+    : { cleaningFee: autoResult?.cleaningFee ?? 0, extraFees: autoResult?.extraFees ?? [], dogFee: autoResult?.dogFee ?? 0 };
+  const hasData = displayNights.length > 0;
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Preis (€)</label>
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={form.price}
+          onChange={(e) => {
+            const n = parseFloat(e.target.value);
+            set("price", Number.isNaN(n) ? 0 : n);
+            set("priceIsManual", true);
+          }}
+          className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-lg font-semibold focus:ring-2 focus:ring-blue-500 outline-none"
+        />
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap cursor-pointer">
+          <input
+            type="checkbox"
+            checked={overrideActive}
+            onChange={(e) => setOverrideActive(e.target.checked)}
+            className="w-3.5 h-3.5 rounded"
+          />
+          Übernachtungspreis
+        </label>
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={overrideRate}
+          onChange={(e) => setOverrideRate(e.target.value)}
+          disabled={!overrideActive}
+          placeholder="€/Nacht"
+          className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50 disabled:bg-gray-100"
+        />
+        {autoResult && (form.priceIsManual || overrideActive) && (
+          <button
+            type="button"
+            onClick={handleRecalculate}
+            className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Neu berechnen
+          </button>
+        )}
+      </div>
+
+      {hasData && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-start gap-1 text-left text-xs text-gray-500 mt-1 hover:text-gray-700"
+        >
+          <span>{priceSummaryText({ nights: displayNights, ...displayFees })}</span>
+          <ChevronDown className={`w-3 h-3 flex-shrink-0 mt-0.5 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+      )}
+
+      {open && hasData && (
+        <div className="mt-2 border border-gray-200 rounded-lg p-3 text-xs space-y-1">
+          {displayNights.map((n, i) => (
+            <div key={i} className="flex justify-between text-gray-600">
+              <span>{fmtDate(n.date)} ({n.seasonLabel})</span>
+              {n.originalPrice !== undefined && n.originalPrice !== n.price ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="line-through text-gray-400">{n.originalPrice.toLocaleString("de-DE")} €</span>
+                  <span className="text-gray-900">{n.price.toLocaleString("de-DE")} €</span>
+                </span>
+              ) : (
+                <span>{n.price.toLocaleString("de-DE")} €</span>
+              )}
+            </div>
+          ))}
+          {displayFees.cleaningFee > 0 && (
+            <div className="flex justify-between text-gray-600 pt-1 border-t border-gray-100">
+              <span>Reinigung</span><span>{displayFees.cleaningFee.toLocaleString("de-DE")} €</span>
+            </div>
+          )}
+          {displayFees.extraFees.map((f, i) => (
+            <div key={i} className="flex justify-between text-gray-600">
+              <span>{f.label}</span><span>{f.amount.toLocaleString("de-DE")} €</span>
+            </div>
+          ))}
+          {displayFees.dogFee > 0 && (
+            <div className="flex justify-between text-gray-600">
+              <span>Hund × {form.dogCount}</span><span>{displayFees.dogFee.toLocaleString("de-DE")} €</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Read-only Zeile in der Anzeige
 function ViewRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -195,9 +370,19 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const { data: allBookings = [] } = useBookings();
   const { data: trashedBookings = [] } = useTrashedBookings();
   const { data: history = [] } = useBookingHistory(current?.id);
+  const { data: priceSettings = [] } = usePriceSettings();
   const create = useCreateBooking();
   const update = useUpdateBooking();
   const del = useSoftDeleteBooking();
+
+  // Automatisch berechneter Preis für die aktuellen Formulardaten (null wenn
+  // keine Preisdaten für Wohnung/Zeitraum hinterlegt sind).
+  const autoResult = useMemo<PriceResult | null>(() => {
+    const groupId = priceGroupOf(form.property_id);
+    const settings = priceSettings.find((p) => p.id === groupId);
+    if (!settings || !form.check_in || !form.check_out || form.check_out <= form.check_in) return null;
+    return calculatePrice(form.check_in, form.check_out, form.adults, form.children, form.dogCount, settings);
+  }, [form.property_id, form.check_in, form.check_out, form.adults, form.children, form.dogCount, priceSettings]);
 
   const isLoading = create.isPending || update.isPending || del.isPending;
 
@@ -208,19 +393,33 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     [allBookings, trashedBookings],
   );
 
+  // Bezugswert der preisrelevanten Felder, gegen den der Auto-Berechnungs-Effekt
+  // vergleicht — verhindert, dass das bloße Öffnen des Modals einen bereits
+  // gespeicherten Preis überschreibt (nur echte Änderungen DANACH lösen aus).
+  // Wird beim (Wieder-)Öffnen synchron auf die geladenen Werte gesetzt, unabhängig
+  // von Effekt-Reihenfolge oder wie oft irgendein Effekt zwischendurch feuert.
+  const priceTriggerKeyOf = (f: BookingFormData) =>
+    `${f.property_id}|${f.check_in}|${f.check_out}|${f.adults}|${f.children}|${f.dogCount}`;
+  const lastPriceTriggerKey = useRef("");
+
   useEffect(() => {
     if (!open) return;
     setCurrent(booking ?? null);
+    let loadedForm: BookingFormData;
     if (booking) {
-      setForm(formOf(booking));
+      loadedForm = formOf(booking);
+      setForm(loadedForm);
       setMode("view");
     } else if (prefill) {
-      setForm({ ...EMPTY_FORM, property_id: prefill.propertyId, check_in: prefill.checkIn, check_out: prefill.checkOut });
+      loadedForm = { ...EMPTY_FORM, property_id: prefill.propertyId, check_in: prefill.checkIn, check_out: prefill.checkOut };
+      setForm(loadedForm);
       setMode("edit");
     } else {
-      setForm(EMPTY_FORM);
+      loadedForm = EMPTY_FORM;
+      setForm(loadedForm);
       setMode("edit");
     }
+    lastPriceTriggerKey.current = priceTriggerKeyOf(loadedForm);
     setError("");
     setShowConfirmText(false);
     setCopied(false);
@@ -230,7 +429,28 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setShowHistory(false);
     setRestoreEntry(null);
     setPendingCollision(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
+
+  // Automatische Neuberechnung bei Datum/Wohnung/Personen/Hund-Änderung, aber nur
+  // solange der Preis nicht manuell überschrieben wurde.
+  useEffect(() => {
+    const key = priceTriggerKeyOf(form);
+    if (key === lastPriceTriggerKey.current) return;
+    lastPriceTriggerKey.current = key;
+    if (form.priceIsManual || !autoResult) return;
+    setForm((prev) => ({
+      ...prev,
+      price: autoResult.total,
+      priceBreakdown: {
+        nights: autoResult.nights,
+        cleaningFee: autoResult.cleaningFee,
+        extraFees: autoResult.extraFees,
+        dogFee: autoResult.dogFee,
+      },
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.property_id, form.check_in, form.check_out, form.adults, form.children, form.dogCount, autoResult]);
 
   const set = <K extends keyof BookingFormData>(key: K, value: BookingFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -535,7 +755,10 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 <ViewRow label="Fähre Abreise">
                   {current.ferry_time_departure ? `${current.ferry_time_departure} Uhr (Baltrum → Neßmersiel)` : "–"}
                 </ViewRow>
-                <ViewRow label="Preis">{current.price > 0 ? `${current.price.toLocaleString("de-DE")} €` : "–"}</ViewRow>
+                <ViewRow label="Preis">
+                  {current.price.toLocaleString("de-DE")} €
+                  {current.priceIsManual && <span className="text-gray-400 text-xs"> (manuell)</span>}
+                </ViewRow>
                 <ViewRow label="Bezahlt">{current.is_paid ? "Ja" : "Nein"}</ViewRow>
                 <ViewRow label="Personen">
                   {persons} {current.children > 0 && <span className="text-gray-400">({current.adults} Erw. + {current.children} Ki.)</span>}
@@ -545,7 +768,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     {current.children} {current.children === 1 ? "Kind" : "Kinder"} ({current.kinderAlter.join(", ")} Jahre)
                   </ViewRow>
                 )}
-                <ViewRow label="Hund">{current.dog ? "Ja 🐕" : "Nein"}</ViewRow>
+                <ViewRow label="Hund">{current.dogCount > 0 ? `${current.dogCount} 🐕` : "Nein"}</ViewRow>
                 {(current.kinderbett || current.rausfallschutz || current.kinderstuhl) && (
                   <ViewRow label="Ausstattung">
                     {[
@@ -685,10 +908,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Preis (€)</label>
-                  <input type="number" min={0} step={1} value={form.price || ""} onChange={(e) => set("price", parseFloat(e.target.value) || 0)} placeholder="0" className={inputCls} />
-                </div>
+                <PriceSection key={current?.id ?? "new"} form={form} set={set} autoResult={autoResult} />
               </div>
 
               <div className="grid grid-cols-3 gap-4">
@@ -705,11 +925,20 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     <input type="checkbox" checked={form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} className="w-4 h-4 rounded" />
                     <span className="text-sm font-medium text-gray-700">Bezahlt ✓</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={form.dog} onChange={(e) => set("dog", e.target.checked)} disabled={!selectedProperty?.allowsDogs} className="w-4 h-4 rounded" />
-                    <span className="text-sm font-medium text-gray-700">
-                      Hund 🐕 {!selectedProperty?.allowsDogs && <span className="text-red-500 text-xs">(n. erlaubt)</span>}
-                    </span>
+                  <label className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">Hund 🐕</span>
+                    <select
+                      value={form.dogCount}
+                      onChange={(e) => set("dogCount", parseInt(e.target.value) || 0)}
+                      disabled={!selectedProperty?.allowsDogs}
+                      className="border border-gray-300 rounded-lg px-2 py-1 text-sm disabled:opacity-50 disabled:bg-gray-100"
+                    >
+                      <option value={0}>0</option>
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                    {!selectedProperty?.allowsDogs && <span className="text-red-500 text-xs">(n. erlaubt)</span>}
                   </label>
                 </div>
               </div>

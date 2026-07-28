@@ -5,6 +5,45 @@ export interface Property {
   allowsDogs: boolean;
 }
 
+// ── Preise ───────────────────────────────────────────────────────────────────
+export type PriceGroupId = "kamin" | "terrasse" | "anne-1" | "anne-2" | "anne-3" | "anne-4" | "anne-5";
+
+export interface PriceSeason {
+  id: string;                                  // z.B. "haupt", "neben", "winter", "erste_woche"
+  label: string;                                // z.B. "Hauptsaison"
+  dateRanges: { start: string; end: string }[]; // ISO, mehrere Zeiträume möglich
+  pricePerPerson: Record<number, number>;       // Personenzahl → Preis, z.B. {1: 92, 2: 102, ...}
+}
+
+export interface PriceYear {
+  year: number;
+  seasons: PriceSeason[];
+}
+
+export interface PriceGroupSettings {
+  id: PriceGroupId;
+  maxPersons: number;              // 4 oder 5 (Terrasse: 4, Kamin/Anne: 5)
+  flatRate: boolean;                // true bei Anne: Preis unabhängig von Personenzahl
+  cleaningFee: number;              // Servicegebühr (Kamin/Terrasse) bzw. Endreinigung (Anne)
+  extraFees: { label: string; amount: number; perPerson?: boolean }[]; // z.B. Wäschepaket bei Anne (10€/Person)
+  dogFee: number;                   // pro Hund
+  years: PriceYear[];               // additiv, nach Jahr aufsteigend
+}
+
+export interface PriceBreakdownNight {
+  date: string;
+  seasonLabel: string;
+  price: number;           // aktuell gültiger Preis (ggf. per Übernachtungspreis-Override angepasst)
+  originalPrice?: number;  // automatisch berechneter Saison-Preis, falls abweichend vom aktuellen
+}
+
+export interface PriceBreakdown {
+  nights: PriceBreakdownNight[];
+  cleaningFee: number;
+  extraFees: { label: string; amount: number }[];
+  dogFee: number;
+}
+
 // Workflow-Status einer Buchung
 export type BookingStatus =
   | "anfrage"       // Hellgrau – eingegangen, unbestätigt
@@ -29,11 +68,13 @@ export interface Booking {
   adults: number;
   children: number;
   kinderAlter: number[]; // Alter pro Kind, z.B. [3, 7, 10]
-  dog: boolean;
+  dogCount: number;    // Anzahl Hunde, 0–3
   kinderbett: boolean;
   rausfallschutz: boolean;
   kinderstuhl: boolean;
-  price: number;       // EUR, 0 = nicht angegeben
+  price: number;        // EUR, finaler Betrag (auch 0 ist ein gültiger, bewusster Preis)
+  priceIsManual: boolean;        // false = automatisch berechnet, true = von Hand überschrieben
+  priceBreakdown?: PriceBreakdown; // nur gesetzt wenn automatisch berechnet
   channel: string;     // "Manuell" | "Ferienwohnungen.de" | "Baltrumdirekt.de" | …
   ical_uid: string;    // iCal UID for deduplication, "" for manual bookings
   notes: string;

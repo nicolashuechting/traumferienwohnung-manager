@@ -525,7 +525,7 @@ export function Bookings() {
                           {b.children > 0 && <span className="text-xs text-gray-400">({b.adults}+{b.children})</span>}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-center"><Checkbox checked={b.dog} /></td>
+                      <td className="px-3 py-3 text-center text-gray-700">{b.dogCount > 0 ? b.dogCount : "–"}</td>
                       <td className="px-3 py-3 text-gray-800 whitespace-nowrap text-right font-medium">
                         {b.price > 0 ? `${b.price.toLocaleString("de-DE")} €` : "–"}
                       </td>

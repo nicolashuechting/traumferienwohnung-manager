@@ -110,7 +110,7 @@ interface SeedBooking {
   is_paid: boolean;
   adults: number;
   children: number;
-  dog: boolean;
+  dogCount: number;
   price: number;
   channel: string;
   ical_uid: string;
@@ -174,7 +174,7 @@ function generateBookings(userId: string): SeedBooking[] {
           is_paid: isPaid,
           adults,
           children,
-          dog: hasDog,
+          dogCount: hasDog ? 1 : 0,
           price,
           channel,
           ical_uid: "",

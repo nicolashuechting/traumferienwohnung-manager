@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Trash2, RefreshCw, CheckCircle, AlertCircle, Link, Download } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Trash2, RefreshCw, CheckCircle, AlertCircle, Link, Download, Euro, ChevronRight } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { properties } from "@/lib/properties";
 import {
@@ -22,6 +23,7 @@ const CHANNEL_PRESETS = [
 ];
 
 export function Settings() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { data: feeds = [] } = useIcalFeeds();
   const createFeed  = useCreateIcalFeed();
@@ -69,6 +71,23 @@ export function Settings() {
   return (
     <div className="p-6 max-w-3xl space-y-6">
       <h2 className="text-xl font-bold text-gray-900">Einstellungen</h2>
+
+      {/* ── Preise ── */}
+      <button
+        onClick={() => navigate("/settings/preise")}
+        className="w-full flex items-center justify-between bg-white rounded-xl border border-gray-200 p-5 hover:bg-gray-50 transition text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+            <Euro className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Preise verwalten</p>
+            <p className="text-xs text-gray-500">Saisonpreise, Servicegebühren und Hundegebühr je Wohnungsgruppe</p>
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-gray-400" />
+      </button>
 
       {/* ── Konto ── */}
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
