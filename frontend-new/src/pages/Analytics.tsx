@@ -1,10 +1,13 @@
 import { useState, useMemo } from "react";
-import { Calendar, Euro, Moon, TrendingUp, Clock, BarChart2, ArrowUp, ArrowDown, Minus } from "lucide-react";
+import {
+  Calendar, Euro, Moon, TrendingUp, Clock, BarChart2, ArrowUp, ArrowDown, Minus,
+  Dog, Baby, ShieldCheck, Armchair,
+} from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
 import { properties } from "@/lib/properties";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, PieChart, Pie, Cell, Legend, ComposedChart, Area,
+  BarChart, Bar, PieChart, Pie, Cell, Legend, ComposedChart, AreaChart, Area,
 } from "recharts";
 import type { Booking } from "@/types";
 
@@ -49,14 +52,21 @@ function totalNightsB(b: Booking) {
 // Anfragen, Reservierungen und offene Bestätigungen bleiben außen vor.
 const REVENUE_STATUSES: Booking["status"][] = ["bezahlt", "abgeschlossen"];
 
+// Auslastung nur aus Buchungen, die tatsächlich stehen — reine Anfragen/
+// Reservierungen/Probleme sollen die Belegungsquote nicht künstlich aufblähen.
+const OCCUPANCY_STATUSES: Booking["status"][] = ["bestaetigt", "bezahlt", "abgeschlossen"];
+
 function calcStats(bookings: Booking[], filteredProps: typeof properties, y: number, m?: number) {
-  const inPeriod     = bookings.filter((b) => m ? bookingInMonth(b, y, m) : bookingInYear(b, y));
-  const bookedNights = bookings.reduce((s, b) => s + (m ? nightsInMonth(b, y, m) : nightsInYear(b, y)), 0);
-  const available    = (m ? daysInMonth(y, m) : 365) * filteredProps.length;
-  const occupancy    = available > 0 ? (bookedNights / available) * 100 : 0;
+  const inPeriod = bookings.filter((b) => m ? bookingInMonth(b, y, m) : bookingInYear(b, y));
+  const allNights = bookings.reduce((s, b) => s + (m ? nightsInMonth(b, y, m) : nightsInYear(b, y)), 0);
+  const occupancyNights = bookings
+    .filter((b) => OCCUPANCY_STATUSES.includes(b.status))
+    .reduce((s, b) => s + (m ? nightsInMonth(b, y, m) : nightsInYear(b, y)), 0);
+  const available = (m ? daysInMonth(y, m) : 365) * filteredProps.length;
+  const occupancy = available > 0 ? (occupancyNights / available) * 100 : 0;
   return {
     bookings: inPeriod.length,
-    nights:   bookedNights,
+    nights:   allNights,
     revenue:  inPeriod
       .filter((b) => REVENUE_STATUSES.includes(b.status))
       .reduce((s, b) => s + (b.price ?? 0), 0),
@@ -68,6 +78,158 @@ function delta(curr: number, prev: number) {
   if (prev === 0) return null;
   const pct = ((curr - prev) / prev) * 100;
   return { pct: Math.abs(pct), dir: pct > 1 ? "up" : pct < -1 ? "down" : "same" as const };
+}
+
+// ── Umsatz-Kategorien ─────────────────────────────────────────────────────────
+type RevenueCategory = "nights" | "cleaning" | "dog" | "laundry" | "manual";
+
+const CATEGORY_LABELS: Record<RevenueCategory, string> = {
+  nights:   "Übernachtungen",
+  cleaning: "Reinigung",
+  dog:      "Hund",
+  laundry:  "Wäsche",
+  manual:   "Manuell",
+};
+const CATEGORY_COLORS: Record<RevenueCategory, string> = {
+  nights:   "#1d4ed8",
+  cleaning: "#0d9488",
+  dog:      "#d97706",
+  laundry:  "#7c3aed",
+  manual:   "#6b7280",
+};
+const ALL_CATEGORIES: RevenueCategory[] = ["nights", "cleaning", "dog", "laundry", "manual"];
+// Flache Top-Level-Keys fürs Chart-Stacking — Recharts berechnet die Achsen-Domain
+// bei gestapelten Bars über den dataKey-String; ein Funktions-Accessor auf ein
+// verschachteltes Objekt wird dabei nicht korrekt für die Skalierung ausgewertet.
+const CATEGORY_DATA_KEY: Record<RevenueCategory, string> = {
+  nights: "cat_nights", cleaning: "cat_cleaning", dog: "cat_dog", laundry: "cat_laundry", manual: "cat_manual",
+};
+
+// Zerlegt eine Buchung in Umsatz-Kategorien. Nur wenn die gespeicherte
+// Aufschlüsselung rechnerisch noch exakt zum aktuellen `price` summiert (Toleranz
+// 0,01 € für Rundung), wird aufgeteilt — sonst zählt der volle Betrag als
+// "Manuell" (deckt sowohl echte Freitext-Preise als auch nachträglich über den
+// Gesamtpreis überschriebene, dadurch veraltete Aufschlüsselungen ab).
+function revenueBreakdownOf(b: Booking): Record<RevenueCategory, number> {
+  const zero: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
+  const bd = b.priceBreakdown;
+  if (!bd) return { ...zero, manual: b.price ?? 0 };
+  const nightsSum = bd.nights.reduce((s, n) => s + n.price, 0);
+  const extraFeesSum = bd.extraFees.reduce((s, f) => s + f.amount, 0);
+  const breakdownSum = nightsSum + bd.cleaningFee + bd.dogFee + extraFeesSum;
+  const consistent = Math.abs(breakdownSum - (b.price ?? 0)) < 0.01;
+  if (!consistent) return { ...zero, manual: b.price ?? 0 };
+  return { nights: nightsSum, cleaning: bd.cleaningFee, dog: bd.dogFee, laundry: extraFeesSum, manual: 0 };
+}
+
+function calcRevenueByCategory(bookings: Booking[], y: number, m?: number) {
+  const inPeriod = bookings.filter((b) =>
+    (m ? bookingInMonth(b, y, m) : bookingInYear(b, y)) && REVENUE_STATUSES.includes(b.status));
+  const revenueByCategory: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
+  const countByCategory:   Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
+  inPeriod.forEach((b) => {
+    const bd = revenueBreakdownOf(b);
+    (Object.keys(bd) as RevenueCategory[]).forEach((cat) => {
+      if (bd[cat] > 0) {
+        revenueByCategory[cat] += bd[cat];
+        countByCategory[cat] += 1;
+      }
+    });
+  });
+  return { revenueByCategory, countByCategory };
+}
+
+// Anklickbare Kategorie-Legende — steuert Sichtbarkeit in beiden Umsatz-Charts.
+function CategoryLegend({
+  categories, totals, visible, onToggle,
+}: {
+  categories: RevenueCategory[];
+  totals: Record<RevenueCategory, number>;
+  visible: Set<RevenueCategory>;
+  onToggle: (cat: RevenueCategory) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {categories.map((cat) => {
+        const active = visible.has(cat);
+        return (
+          <button
+            key={cat}
+            type="button"
+            onClick={() => onToggle(cat)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition ${
+              active ? "text-white border-transparent" : "text-gray-400 bg-gray-50 border-gray-200 hover:bg-gray-100"
+            }`}
+            style={active ? { backgroundColor: CATEGORY_COLORS[cat] } : undefined}
+          >
+            {CATEGORY_LABELS[cat]}
+            <span className={active ? "opacity-90" : ""}>· {totals[cat].toLocaleString("de-DE")} €</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Tooltip für ein einzelnes Kategorie-Mini-Chart: Periode, Betrag, Anzahl Buchungen.
+function CategoryMiniTooltip({ active, payload, label, cat }: {
+  active?: boolean;
+  payload?: Array<{ payload: { revenueByCategory: Record<RevenueCategory, number>; countByCategory: Record<RevenueCategory, number> } }>;
+  label?: string;
+  cat: RevenueCategory;
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  if (!point) return null;
+  const value = point.revenueByCategory[cat];
+  const count = point.countByCategory[cat];
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-900">{label}</p>
+      <p className="text-gray-600 whitespace-nowrap">
+        {value.toLocaleString("de-DE")} € · {count} Buchung{count === 1 ? "" : "en"}
+      </p>
+    </div>
+  );
+}
+
+// Ein Mini-Chart pro Kategorie mit eigener, automatisch skalierter Y-Achse —
+// so bleiben kleine Beträge (z.B. Hund) lesbar, unabhängig von großen (Manuell).
+function CategoryMiniChart({ cat, data, full }: {
+  cat: RevenueCategory;
+  data: Array<{ label: string; revenueByCategory: Record<RevenueCategory, number>; countByCategory: Record<RevenueCategory, number> } & Record<string, unknown>>;
+  full: boolean;
+}) {
+  const color = CATEGORY_COLORS[cat];
+  const gradId = `rev-grad-${cat}`;
+  const total = data.reduce((s, p) => s + p.revenueByCategory[cat], 0);
+  return (
+    <div className={`bg-gray-50 rounded-lg p-4 ${full ? "col-span-full" : ""}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+          {CATEGORY_LABELS[cat]}
+        </span>
+        <span className="text-xs font-bold text-gray-800">{total.toLocaleString("de-DE")} €</span>
+      </div>
+      <ResponsiveContainer width="100%" height={full ? 260 : 160}>
+        <AreaChart data={data}>
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.35} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+          <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10 }} width={44} />
+          <Tooltip content={<CategoryMiniTooltip cat={cat} />} />
+          <Area type="monotone" dataKey={CATEGORY_DATA_KEY[cat]} stroke={color} strokeWidth={2}
+            fill={`url(#${gradId})`} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 // ── Gauge ─────────────────────────────────────────────────────────────────────
@@ -178,6 +340,7 @@ export function Analytics() {
   const [fromYear, setFromYear]     = useState(now.getFullYear() - 1);
   const [toYear, setToYear]         = useState(now.getFullYear());
   const [propFilter, setPropFilter] = useState<PropFilter>("all");
+  const [visibleCategories, setVisibleCategories] = useState<Set<RevenueCategory>>(new Set(ALL_CATEGORIES));
 
   const bookings = useMemo(() =>
     propFilter === "all" ? allBookings
@@ -188,6 +351,23 @@ export function Analytics() {
     propFilter === "all" ? properties : properties.filter((p) => p.house === propFilter),
     [propFilter]
   );
+
+  // Bei Upstalsboom-Filter gibt es strukturell kein Wäschepaket — Kategorie ganz weglassen.
+  const availableCategories = useMemo(
+    () => propFilter === "Upstalsboom" ? ALL_CATEGORIES.filter((c) => c !== "laundry") : ALL_CATEGORIES,
+    [propFilter]
+  );
+  const effectiveVisible = useMemo(
+    () => new Set([...visibleCategories].filter((c) => availableCategories.includes(c))),
+    [visibleCategories, availableCategories]
+  );
+  const toggleCategory = (cat: RevenueCategory) => {
+    setVisibleCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  };
 
   const periods: Array<{ key: string; label: string; y: number; m?: number }> = useMemo(() => {
     if (mode === "monthly") {
@@ -207,7 +387,19 @@ export function Analytics() {
   }, [mode, fromMonth, toMonth, fromYear, toYear]);
 
   const periodStats = useMemo(() =>
-    periods.map(({ key, label, y, m }) => ({ key, label, ...calcStats(bookings, filteredProps, y, m) })),
+    periods.map(({ key, label, y, m }) => {
+      const { revenueByCategory, countByCategory } = calcRevenueByCategory(bookings, y, m);
+      return {
+        key, label,
+        ...calcStats(bookings, filteredProps, y, m),
+        revenueByCategory, countByCategory,
+        cat_nights:   revenueByCategory.nights,
+        cat_cleaning: revenueByCategory.cleaning,
+        cat_dog:      revenueByCategory.dog,
+        cat_laundry:  revenueByCategory.laundry,
+        cat_manual:   revenueByCategory.manual,
+      };
+    }),
     [periods, bookings, filteredProps]
   );
   const prevPeriodStats = useMemo(() =>
@@ -225,18 +417,29 @@ export function Analytics() {
     [periodStats, prevPeriodStats]
   );
 
+  const categoryTotals = useMemo(() => {
+    const totals: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
+    periodStats.forEach((p) => {
+      ALL_CATEGORIES.forEach((cat) => { totals[cat] += p.revenueByCategory[cat]; });
+    });
+    return totals;
+  }, [periodStats]);
+
+  // Buchungen, deren Anreise im gewählten Zeitraum liegt — Grundgesamtheit für
+  // Vorlaufzeit/Aufenthaltsdauer (oben) sowie Hunde-/Ausstattungsstatistik (unten).
+  const periodBks = useMemo(() => bookings.filter((b) => {
+    const ci = b.check_in;
+    return mode === "monthly"
+      ? ci >= fromMonth && ci <= toMonth + "-31"
+      : Number(ci.slice(0, 4)) >= fromYear && Number(ci.slice(0, 4)) <= toYear;
+  }), [bookings, mode, fromMonth, toMonth, fromYear, toYear]);
+
   const summary = useMemo(() => {
     const totalBookings = periodStats.reduce((s, p) => s + p.bookings, 0);
     const totalNights   = periodStats.reduce((s, p) => s + p.nights, 0);
     const totalRevenue  = periodStats.reduce((s, p) => s + p.revenue, 0);
     const avgOccupancy  = periodStats.length
       ? periodStats.reduce((s, p) => s + p.occupancy, 0) / periodStats.length : 0;
-    const periodBks = bookings.filter((b) => {
-      const ci = b.check_in;
-      return mode === "monthly"
-        ? ci >= fromMonth && ci <= toMonth + "-31"
-        : Number(ci.slice(0, 4)) >= fromYear && Number(ci.slice(0, 4)) <= toYear;
-    });
     const avgStay = periodBks.length
       ? periodBks.reduce((s, b) => s + totalNightsB(b), 0) / periodBks.length : 0;
     const leaded  = periodBks.filter((b) => b.created_at);
@@ -247,7 +450,7 @@ export function Analytics() {
       return s + Math.max(0, Math.round((new Date(b.check_in + "T00:00:00").getTime() - created) / 86400000));
     }, 0) / leaded.length : 0;
     return { totalBookings, totalNights, totalRevenue, avgOccupancy, avgStay, avgLead };
-  }, [periodStats, bookings, mode, fromMonth, toMonth, fromYear, toYear]);
+  }, [periodStats, periodBks]);
 
   const prevSummary = useMemo(() => ({
     totalBookings: prevPeriodStats.reduce((s, p) => s + p.bookings, 0),
@@ -288,7 +491,41 @@ export function Analytics() {
     [filteredProps, periods, bookings]
   );
 
+  // ── Hunde & Zusatzausstattung ──────────────────────────────────────────────
+  const dogStats = useMemo(() => {
+    const withDogs = periodBks.filter((b) => b.dogCount > 0);
+    const totalDogs = periodBks.reduce((s, b) => s + (b.dogCount || 0), 0);
+    const byProperty = filteredProps
+      .filter((p) => p.allowsDogs)
+      .map((p) => {
+        const propBks = periodBks.filter((b) => b.property_id === p.id);
+        const propWithDogs = propBks.filter((b) => b.dogCount > 0);
+        return {
+          name: p.name,
+          count: propWithDogs.length,
+          pct: propBks.length ? (propWithDogs.length / propBks.length) * 100 : 0,
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+    return {
+      count: withDogs.length,
+      pct: periodBks.length ? (withDogs.length / periodBks.length) * 100 : 0,
+      totalDogs,
+      byProperty,
+    };
+  }, [periodBks, filteredProps]);
+
+  const equipmentStats = useMemo(() => {
+    const total = periodBks.length;
+    const mk = (key: "kinderbett" | "rausfallschutz" | "kinderstuhl") => {
+      const count = periodBks.filter((b) => b[key]).length;
+      return { count, pct: total ? (count / total) * 100 : 0 };
+    };
+    return { kinderbett: mk("kinderbett"), rausfallschutz: mk("rausfallschutz"), kinderstuhl: mk("kinderstuhl") };
+  }, [periodBks]);
+
   const compLabel = mode === "monthly" ? "Vorjahreszeitraum" : "Vorjahr";
+  const visibleCatList = availableCategories.filter((c) => effectiveVisible.has(c));
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-full">
@@ -339,22 +576,40 @@ export function Analytics() {
           </div>
         </div>
 
-        {/* Stat Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-          {/* Umsatz */}
-          <div className="bg-white rounded-xl border border-gray-200 border-b-4 border-b-emerald-500 p-5">
-            <div className="flex items-start justify-between mb-0.5">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Umsatz</p>
-              <Euro className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            </div>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{summary.totalRevenue.toLocaleString("de-DE")} €</p>
-            <div className="mt-1">
-              <CompareRow curr={summary.totalRevenue} prev={prevSummary.totalRevenue}
-                formatVal={(n) => `${n.toLocaleString("de-DE")} €`} />
-            </div>
-            <div className="mt-2"><Sparkline data={periodStats.map((p) => p.revenue)} color="#10b981" /></div>
+        {/* Große Umsatz-Karte */}
+        <div className="bg-white rounded-xl border border-gray-200 border-b-4 border-b-emerald-500 p-5">
+          <div className="flex items-start justify-between mb-0.5">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Umsatz</p>
+            <Euro className="w-4 h-4 text-emerald-600 flex-shrink-0" />
           </div>
+          <div className="flex items-end justify-between flex-wrap gap-4">
+            <div>
+              <p className="text-3xl font-bold text-gray-900 mt-1">{summary.totalRevenue.toLocaleString("de-DE")} €</p>
+              <div className="mt-1">
+                <CompareRow curr={summary.totalRevenue} prev={prevSummary.totalRevenue}
+                  formatVal={(n) => `${n.toLocaleString("de-DE")} €`} />
+              </div>
+            </div>
+            <div className="w-full sm:w-48"><Sparkline data={periodStats.map((p) => p.revenue)} color="#10b981" /></div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <CategoryLegend categories={availableCategories} totals={categoryTotals} visible={effectiveVisible} onToggle={toggleCategory} />
+          </div>
+
+          <div className="mt-4">
+            {periodStats.length > 0 && visibleCatList.length > 0 ? (
+              <div className={`grid gap-3 ${visibleCatList.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"}`}>
+                {visibleCatList.map((cat) => (
+                  <CategoryMiniChart key={`${cat}-${visibleCatList.length === 1}`} cat={cat} data={chartData} full={visibleCatList.length === 1} />
+                ))}
+              </div>
+            ) : <div className="h-[160px] flex items-center justify-center text-gray-400 text-sm">Keine Daten</div>}
+          </div>
+        </div>
+
+        {/* Buchungen + Auslastung nebeneinander */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
           {/* Buchungen */}
           <div className="bg-white rounded-xl border border-gray-200 border-b-4 border-b-blue-500 p-5">
@@ -367,7 +622,6 @@ export function Analytics() {
               <CompareRow curr={summary.totalBookings} prev={prevSummary.totalBookings}
                 formatVal={(n) => `${n} Buchungen`} />
             </div>
-            {/* Nächte separat mit Vergleich */}
             <div className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
               <Moon className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
               <span>{summary.totalNights} Nächte</span>
@@ -458,32 +712,6 @@ export function Analytics() {
           </div>
         </div>
 
-        {/* Umsatz Chart */}
-        {(summary.totalRevenue > 0 || prevSummary.totalRevenue > 0) && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <h3 className="text-base font-semibold text-gray-900">
-                Umsatz {mode === "monthly" ? "pro Monat" : "pro Jahr"}
-              </h3>
-              <CompareRow curr={summary.totalRevenue} prev={prevSummary.totalRevenue}
-                formatVal={(n) => `${n.toLocaleString("de-DE")} €`} />
-            </div>
-            <ResponsiveContainer width="100%" height={200}>
-              <ComposedChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} unit=" €" />
-                <Tooltip />
-                <Legend />
-                <Area type="monotone" dataKey="prevRevenue" name={`Umsatz ${compLabel}`}
-                  fill="#dbeafe" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 3" fillOpacity={0.6} />
-                <Area type="monotone" dataKey="revenue" name="Umsatz aktuell"
-                  fill="#bfdbfe" stroke="#2563eb" strokeWidth={2} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
         {/* Kanal + Buchungen nach Wohnung */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -547,6 +775,62 @@ export function Analytics() {
             </ResponsiveContainer>
           </div>
         )}
+
+        {/* Hunde & Zusatzausstattung */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-base font-semibold text-gray-900 mb-4">Hunde &amp; Zusatzausstattung</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+            <div className="bg-gray-50 rounded-lg p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-amber-50 text-amber-600">
+                <Dog className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Buchungen mit Hund</p>
+                <p className="text-base font-bold text-gray-900">{dogStats.count} <span className="text-xs font-normal text-gray-400">({dogStats.pct.toFixed(1)} %)</span></p>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-amber-50 text-amber-600">
+                <Dog className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Hunde gesamt</p>
+                <p className="text-base font-bold text-gray-900">{dogStats.totalDogs}</p>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-xs text-gray-500 mb-2">Hunde je Wohnung</p>
+              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                {dogStats.byProperty.length === 0 && <p className="text-xs text-gray-400">Keine Wohnung mit Hundeerlaubnis im Filter.</p>}
+                {dogStats.byProperty.map((p) => (
+                  <div key={p.name} className="flex items-center justify-between text-xs">
+                    <span className="text-gray-600">{p.name}</span>
+                    <span className="font-medium text-gray-800">{p.count} <span className="text-gray-400">({p.pct.toFixed(0)} %)</span></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {[
+              { label: "Kinderbett",     Icon: Baby,        stats: equipmentStats.kinderbett },
+              { label: "Rausfallschutz", Icon: ShieldCheck, stats: equipmentStats.rausfallschutz },
+              { label: "Kinderstuhl",    Icon: Armchair,    stats: equipmentStats.kinderstuhl },
+            ].map(({ label, Icon, stats }) => (
+              <div key={label} className="bg-gray-50 rounded-lg p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-blue-50 text-blue-600">
+                  <Icon className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">{label}</p>
+                  <p className="text-base font-bold text-gray-900">{stats.count} <span className="text-xs font-normal text-gray-400">({stats.pct.toFixed(1)} %)</span></p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
 
       </div>
     </div>
