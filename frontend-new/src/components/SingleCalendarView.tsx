@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from "react";
 import {
   DndContext, PointerSensor, useSensor, useSensors, useDraggable,
   type DragStartEvent, type DragMoveEvent, type DragEndEvent,
@@ -44,6 +44,10 @@ interface SingleCalendarViewProps {
   bookings: Booking[];
   onBookingClick: (booking: Booking) => void;
   onDateRangeSelect: (propertyId: string, start: Date, end: Date) => void;
+}
+
+export interface SingleCalendarViewHandle {
+  scrollToToday: () => void;
 }
 
 const CELL_W = 44;
@@ -283,12 +287,12 @@ function MonthResizeHandle({ booking, mode, dragId, left, top, height, isAnyDrag
   );
 }
 
-export function SingleCalendarView({
+export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCalendarViewProps>(function SingleCalendarView({
   propertyId,
   bookings,
   onBookingClick,
   onDateRangeSelect,
-}: SingleCalendarViewProps) {
+}, ref) {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [containerWidth, setContainerWidth] = useState(960);
   const [dragStart, setDragStart] = useState<Date | null>(null);
@@ -381,6 +385,20 @@ export function SingleCalendarView({
   const handleScroll = useCallback(() => {
     if (scrollRef.current) setScrollLeft(scrollRef.current.scrollLeft);
   }, []);
+
+  // "Heute"-Button: sofort (ohne Scroll-Animation) so springen, dass der Block
+  // des aktuellen Monats so weit links wie möglich, aber vollständig sichtbar steht.
+  useImperativeHandle(ref, () => ({
+    scrollToToday: () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const idealLeft = MONTHS_BACK * MONTH_TOTAL_W;
+      const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+      const clamped = Math.max(0, Math.min(idealLeft, maxLeft));
+      el.scrollLeft = clamped;
+      setScrollLeft(clamped);
+    },
+  }), []);
 
   const propertyBookings = useMemo(() => {
     const filtered = bookings
@@ -477,7 +495,10 @@ export function SingleCalendarView({
             >
               {/* Monats-Header */}
               <div
-                className="text-sm font-bold text-gray-800 mb-1 px-1"
+                className={`text-sm font-bold mb-1 px-1 ${
+                  monthData.year === TODAY.getFullYear() && monthData.month === TODAY.getMonth()
+                    ? "text-blue-600" : "text-gray-800"
+                }`}
                 style={{ height: MONTH_HEADER_H, display: "flex", alignItems: "center" }}
               >
                 {monthData.label}
@@ -675,4 +696,4 @@ export function SingleCalendarView({
     </div>
     </DndContext>
   );
-}
+});

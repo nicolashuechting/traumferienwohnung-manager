@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { Plus, LayoutGrid, CalendarDays } from "lucide-react";
-import { CalendarGrid } from "@/components/CalendarGrid";
-import { SingleCalendarView } from "@/components/SingleCalendarView";
+import { useRef, useState } from "react";
+import { Plus, LayoutGrid, CalendarDays, CalendarCheck } from "lucide-react";
+import { CalendarGrid, type CalendarGridHandle } from "@/components/CalendarGrid";
+import { SingleCalendarView, type SingleCalendarViewHandle } from "@/components/SingleCalendarView";
 import { BookingModal } from "@/components/BookingModal";
 import { useBookings } from "@/hooks/useBookings";
 import { properties } from "@/lib/properties";
@@ -16,6 +16,9 @@ export function Calendar() {
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [prefill, setPrefill] = useState<{ propertyId: string; checkIn: string; checkOut: string } | undefined>();
+  const calendarRef = useRef<CalendarGridHandle | SingleCalendarViewHandle>(null);
+
+  const handleToday = () => calendarRef.current?.scrollToToday();
 
   const handleBookingClick = (booking: Booking) => {
     setSelectedBooking(booking);
@@ -57,6 +60,15 @@ export function Calendar() {
 
         {/* Centre controls */}
         <div className="flex items-center gap-3">
+          {/* Heute-Button */}
+          <button
+            onClick={handleToday}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition"
+          >
+            <CalendarCheck className="w-4 h-4" />
+            Heute
+          </button>
+
           {/* Multi / Single toggle */}
           <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
             <button
@@ -134,12 +146,14 @@ export function Calendar() {
           </div>
         ) : viewMode === "multi" ? (
           <CalendarGrid
+            ref={calendarRef}
             bookings={bookings}
             onBookingClick={handleBookingClick}
             onDateRangeSelect={handleDateRangeSelect}
           />
         ) : (
           <SingleCalendarView
+            ref={calendarRef}
             propertyId={selectedPropertyId}
             bookings={bookings}
             onBookingClick={handleBookingClick}

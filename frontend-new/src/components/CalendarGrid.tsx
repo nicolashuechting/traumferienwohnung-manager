@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Dog } from "lucide-react";
 import {
   DndContext, PointerSensor, useSensor, useSensors, useDraggable,
@@ -37,6 +37,10 @@ interface CalendarGridProps {
   bookings: Booking[];
   onBookingClick: (booking: Booking) => void;
   onDateRangeSelect: (propertyId: string, startDate: Date, endDate: Date) => void;
+}
+
+export interface CalendarGridHandle {
+  scrollToToday: () => void;
 }
 
 // ── Verschiebbarer Buchungsbalken (Mitte = Datum verschieben) ─────────────────
@@ -127,7 +131,9 @@ function ResizeHandle({ booking, mode, left, top, height }: ResizeHandleProps) {
 
 const DAY_W = 44;
 const ROW_H = 52;
-const HEADER_H = 52;
+const DAY_HEADER_H = 52;
+const MONTH_LABEL_H = 22;
+const HEADER_H = MONTH_LABEL_H + DAY_HEADER_H;
 const LABEL_W = 160;
 const BUFFER = 30;
 
@@ -199,7 +205,9 @@ const HEADER_BG: React.CSSProperties = {
   ].join(", "),
 };
 
-export function CalendarGrid({ bookings, onBookingClick, onDateRangeSelect }: CalendarGridProps) {
+export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(function CalendarGrid(
+  { bookings, onBookingClick, onDateRangeSelect }, ref,
+) {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [containerWidth, setContainerWidth] = useState(900);
   const [selection, setSelection] = useState<{ propertyId: string; start: number; end: number } | null>(null);
@@ -296,6 +304,17 @@ export function CalendarGrid({ bookings, onBookingClick, onDateRangeSelect }: Ca
     if (scrollRef.current) setScrollLeft(scrollRef.current.scrollLeft);
   }, []);
 
+  // "Heute"-Button: sofort (ohne Scroll-Animation) so springen, dass der heutige
+  // Tag ganz links im sichtbaren Bereich steht.
+  useImperativeHandle(ref, () => ({
+    scrollToToday: () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollLeft = TODAY_COL * DAY_W;
+      setScrollLeft(TODAY_COL * DAY_W);
+    },
+  }), []);
+
   const visStart = Math.max(0, Math.floor(scrollLeft / DAY_W) - BUFFER);
   const visEnd   = Math.min(TOTAL_DAYS - 1, Math.ceil((scrollLeft + containerWidth) / DAY_W) + BUFFER);
 
@@ -389,6 +408,27 @@ export function CalendarGrid({ bookings, onBookingClick, onDateRangeSelect }: Ca
     return days;
   }, [visStart, visEnd]);
 
+  // Eigene Monats-/Jahres-Leiste über dem Tages-Header: ein Block pro Monat im
+  // sichtbaren Bereich, exakt so breit wie die Tage dieses Monats. Scrollt ganz
+  // normal mit dem Raster mit (kein position:sticky).
+  const visibleMonths = useMemo(() => {
+    const startDay = getDay(visStart);
+    const endDay = getDay(visEnd);
+    const months: { year: number; month: number; startIdx: number; endIdx: number }[] = [];
+    let cursor = new Date(startDay.getFullYear(), startDay.getMonth(), 1);
+    const lastMonth = new Date(endDay.getFullYear(), endDay.getMonth(), 1);
+    while (cursor <= lastMonth) {
+      const year = cursor.getFullYear(), month = cursor.getMonth();
+      const first = new Date(year, month, 1);
+      const last  = new Date(year, month + 1, 0);
+      const startIdx = Math.max(0, Math.round((first.getTime() - TODAY.getTime()) / 86400000) + DAYS_BACK);
+      const endIdx   = Math.min(TOTAL_DAYS - 1, Math.round((last.getTime() - TODAY.getTime()) / 86400000) + DAYS_BACK);
+      months.push({ year, month, startIdx, endIdx });
+      cursor = new Date(year, month + 1, 1);
+    }
+    return months;
+  }, [visStart, visEnd]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -457,40 +497,57 @@ export function CalendarGrid({ bookings, onBookingClick, onDateRangeSelect }: Ca
       >
         <div style={{ width: totalWidth, position: "relative" }}>
 
-          {/* ── Day header ── */}
-          <div
-            className="sticky top-0 z-10 border-b border-gray-200"
-            style={{ height: HEADER_H, backgroundColor: "#f9fafb", ...HEADER_BG }}
-          >
-            <div className="absolute top-0 bottom-0 bg-blue-100 pointer-events-none" style={{ left: TODAY_COL * DAY_W, width: DAY_W }} />
-            {visibleDays.map(({ i, day }) => {
-              const isToday = i === TODAY_COL;
-              const isMonthStart = day.getDate() === 1;
-              return (
-                <div
-                  key={i}
-                  className="absolute top-0 bottom-0 flex flex-col items-center justify-center pointer-events-none"
-                  style={{
-                    left: i * DAY_W,
-                    width: DAY_W,
-                    borderLeft: isMonthStart ? "2px solid #9ca3af" : undefined,
-                    backgroundColor: isMonthStart ? "#f3f4f6" : undefined,
-                  }}
-                >
-                  {isMonthStart && (
-                    <span className="text-[9px] font-bold text-gray-500 uppercase leading-none">
-                      {day.toLocaleDateString("de-DE", { month: "short" })}
+          {/* ── Monats-/Jahres-Leiste + Tages-Header ── */}
+          <div className="sticky top-0 z-10">
+            {/* Monats-/Jahres-Leiste — eigener Block pro Monat, scrollt normal mit */}
+            <div className="relative border-b border-gray-200" style={{ height: MONTH_LABEL_H, backgroundColor: "#f3f4f6" }}>
+              {visibleMonths.map(({ year, month, startIdx, endIdx }) => {
+                const isCurrentMonth = year === TODAY.getFullYear() && month === TODAY.getMonth();
+                const label = new Date(year, month, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+                return (
+                  <div
+                    key={`${year}-${month}`}
+                    className="absolute top-0 border-l-2 border-gray-400 overflow-hidden"
+                    style={{ left: startIdx * DAY_W, width: (endIdx - startIdx + 1) * DAY_W, height: MONTH_LABEL_H }}
+                  >
+                    <span
+                      className={`pl-1.5 text-[10px] font-bold uppercase whitespace-nowrap leading-none flex items-center h-full ${
+                        isCurrentMonth ? "text-blue-600" : "text-gray-500"
+                      }`}
+                    >
+                      {label}
                     </span>
-                  )}
-                  <span className={`text-[10px] leading-none ${isToday ? "text-blue-500" : "text-gray-400"}`}>
-                    {day.toLocaleDateString("de-DE", { weekday: "narrow" })}
-                  </span>
-                  <span className={`text-xs font-bold leading-none ${isToday ? "text-blue-600" : "text-gray-700"}`}>
-                    {day.getDate()}
-                  </span>
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Tages-Header */}
+            <div className="relative border-b border-gray-200" style={{ height: DAY_HEADER_H, backgroundColor: "#f9fafb", ...HEADER_BG }}>
+              <div className="absolute top-0 bottom-0 bg-blue-100 pointer-events-none" style={{ left: TODAY_COL * DAY_W, width: DAY_W }} />
+              {visibleDays.map(({ i, day }) => {
+                const isToday = i === TODAY_COL;
+                const isMonthStart = day.getDate() === 1;
+                return (
+                  <div
+                    key={i}
+                    className="absolute top-0 bottom-0 flex flex-col items-center justify-center pointer-events-none"
+                    style={{
+                      left: i * DAY_W,
+                      width: DAY_W,
+                      borderLeft: isMonthStart ? "2px solid #9ca3af" : undefined,
+                    }}
+                  >
+                    <span className={`text-[10px] leading-none ${isToday ? "text-blue-500" : "text-gray-400"}`}>
+                      {day.toLocaleDateString("de-DE", { weekday: "narrow" })}
+                    </span>
+                    <span className={`text-xs font-bold leading-none ${isToday ? "text-blue-600" : "text-gray-700"}`}>
+                      {day.getDate()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* ── Property rows ── */}
@@ -596,4 +653,4 @@ export function CalendarGrid({ bookings, onBookingClick, onDateRangeSelect }: Ca
     </div>
     </DndContext>
   );
-}
+});
