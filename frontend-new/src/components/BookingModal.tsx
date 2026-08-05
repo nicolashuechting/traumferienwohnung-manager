@@ -4,9 +4,12 @@ import { properties } from "@/lib/properties";
 import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings, useTrashedBookings } from "@/hooks/useBookings";
 import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
+import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
-import { buildConfirmationText } from "@/lib/confirmation";
+import { generateConfirmationPdf } from "@/lib/pdfConfirmation";
+import hausAnneLogoUrl from "@/assets/logos/haus-anne.png";
+import upstalsboomLogoUrl from "@/assets/logos/upstalsboom.png";
 import { diffBooking, fieldLabel, formatFieldValue, formatHistoryDate } from "@/lib/bookingHistory";
 import { getTimes, hasFerryData, isNoBus, type FerryDirection } from "@/lib/ferry";
 import { findCollision } from "@/lib/bookingDrag";
@@ -14,9 +17,10 @@ import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { priceGroupOf } from "@/lib/priceGroups";
 import { calculatePrice, type PriceResult } from "@/lib/pricing";
 import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
-import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown } from "@/types";
+import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId } from "@/types";
 
 const FERRY_INPUT_CLS = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
+const LOGO_URLS: Record<HouseId, string> = { "haus-anne": hausAnneLogoUrl, "upstalsboom": upstalsboomLogoUrl };
 
 // Fährzeit-Auswahl: Dropdown aus dem Fahrplan, Freitext nur bei "Andere Zeit…"
 function FerryPicker({
@@ -358,9 +362,10 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const [current, setCurrent] = useState<Booking | null>(booking ?? null);
   const [form, setForm] = useState<BookingFormData>(EMPTY_FORM);
   const [error, setError] = useState("");
-  const [showConfirmText, setShowConfirmText] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [numberCopied, setNumberCopied] = useState(false);
+  const [includeNewsletter, setIncludeNewsletter] = useState(true);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState("");
 
   // Overlays
   const [showSaveDiff, setShowSaveDiff] = useState(false);
@@ -373,6 +378,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const { data: trashedBookings = [] } = useTrashedBookings();
   const { data: history = [] } = useBookingHistory(current?.id);
   const { data: priceSettings = [] } = usePriceSettings();
+  const { data: houseSettings = [] } = useHouseSettings();
   const create = useCreateBooking();
   const update = useUpdateBooking();
   const del = useSoftDeleteBooking();
@@ -423,9 +429,8 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     }
     lastPriceTriggerKey.current = priceTriggerKeyOf(loadedForm);
     setError("");
-    setShowConfirmText(false);
-    setCopied(false);
     setNumberCopied(false);
+    setPdfError("");
     setShowSaveDiff(false);
     setPendingSave(null);
     setShowHistory(false);
@@ -486,7 +491,6 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setForm(formOf(current));
     setMode("view");
     setError("");
-    setShowConfirmText(false);
   }, [current, form, onClose]);
 
   // ESC-Handhabung
@@ -510,7 +514,6 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
 
   const handleConfirm = () => {
     setForm((prev) => ({ ...prev, status: "bestaetigt", booking_number: prev.booking_number || ensureNumber(prev) }));
-    setShowConfirmText(true);
   };
 
   const handleReserve = () => {
@@ -525,20 +528,27 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     set("status", s);
   };
 
-  const effective = mode === "edit" ? form : current ? formOf(current) : form;
-  const confirmationText = buildConfirmationText({
-    ...(current ?? ({} as Booking)),
-    ...effective,
-    booking_number: effective.booking_number || "[Buchungsnummer]",
-  } as Booking);
-
-  const handleCopy = async () => {
+  const handleGeneratePdf = async () => {
+    if (!current) return;
+    setPdfError("");
+    const prop = properties.find((p) => p.id === current.property_id);
+    const houseId: HouseId = prop?.house === "Haus Anne" ? "haus-anne" : "upstalsboom";
+    const house = houseSettings.find((h) => h.id === houseId);
+    if (!house) {
+      setPdfError("Keine Haus-Konfiguration gefunden – bitte zuerst unter Einstellungen → Haus-Konfiguration ausfüllen.");
+      return;
+    }
+    setPdfLoading(true);
     try {
-      await navigator.clipboard.writeText(confirmationText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Kopieren fehlgeschlagen – Text bitte manuell markieren.");
+      const logoBytes = await fetch(LOGO_URLS[houseId]).then((r) => r.arrayBuffer()).catch(() => null);
+      const bytes = await generateConfirmationPdf(current, house, logoBytes, { includeNewsletter });
+      const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch (e) {
+      setPdfError(`PDF konnte nicht erstellt werden: ${(e as Error).message}`);
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -613,7 +623,6 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       setForm(pendingSave.data);
       setShowSaveDiff(false);
       setPendingSave(null);
-      setShowConfirmText(false);
       setMode("view");
     } catch (e) {
       setError((e as Error).message);
@@ -734,14 +743,6 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusConfig(current.status).dotColor }} />
                   {statusConfig(current.status).label}
                 </span>
-                {current.status !== "anfrage" && current.status !== "reserviert" && current.status !== "problem" && (
-                  <button
-                    onClick={() => setShowConfirmText((v) => !v)}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    {showConfirmText ? "Bestätigungstext ausblenden" : "Bestätigungstext anzeigen"}
-                  </button>
-                )}
               </div>
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -834,15 +835,6 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     className="mt-3 flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition"
                   >
                     <CheckCircle2 className="w-4 h-4" /> Buchung bestätigen
-                  </button>
-                )}
-                {form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmText((v) => !v)}
-                    className="mt-3 ml-1 text-sm font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    {showConfirmText ? "Bestätigungstext ausblenden" : "Bestätigungstext anzeigen"}
                   </button>
                 )}
               </div>
@@ -978,30 +970,29 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notizen</label>
                 <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} placeholder="Spezielle Anforderungen, Anmerkungen..." className={`${inputCls} resize-none`} />
               </div>
-            </>
-          )}
 
-          {/* Bestätigungstext (beide Modi) */}
-          {showConfirmText && (
-            <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-gray-700">Bestätigungstext</span>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 transition"
-                >
-                  {copied ? <><Check className="w-3.5 h-3.5" /> Kopiert</> : <><Copy className="w-3.5 h-3.5" /> Kopieren</>}
-                </button>
-              </div>
-              <textarea
-                readOnly
-                value={confirmationText}
-                rows={14}
-                onFocus={(e) => e.currentTarget.select()}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono bg-white text-gray-800 resize-y focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
+              {current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
+                <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+                  <span className="text-sm font-semibold text-gray-700">Buchungsbestätigung (PDF)</span>
+                  <label className="flex items-center gap-2 text-sm text-gray-600">
+                    <input type="checkbox" checked={includeNewsletter} onChange={(e) => setIncludeNewsletter(e.target.checked)} />
+                    Newsletter-Frage einschließen
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGeneratePdf}
+                    disabled={pdfLoading}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+                  >
+                    {pdfLoading ? "Erstelle…" : "Bestätigung erstellen (Vorschau)"}
+                  </button>
+                  <p className="text-xs text-gray-400">
+                    Vorläufig: öffnet nur eine Vorschau in neuem Tab. Speichern/Versionierung/E-Mail folgen noch.
+                  </p>
+                  {pdfError && <p className="text-sm text-red-600">{pdfError}</p>}
+                </div>
+              )}
+            </>
           )}
         </div>
 

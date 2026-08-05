@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Trash2, RefreshCw, CheckCircle, AlertCircle, Link, Download, Euro, ChevronRight } from "lucide-react";
+import { Plus, Trash2, RefreshCw, CheckCircle, AlertCircle, Link, Download, Euro, ChevronRight, Home } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { properties } from "@/lib/properties";
 import {
@@ -84,6 +84,23 @@ export function Settings() {
           <div>
             <p className="text-sm font-semibold text-gray-900">Preise verwalten</p>
             <p className="text-xs text-gray-500">Saisonpreise, Servicegebühren und Hundegebühr je Wohnungsgruppe</p>
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-gray-400" />
+      </button>
+
+      {/* ── Häuser ── */}
+      <button
+        onClick={() => navigate("/settings/haeuser")}
+        className="w-full flex items-center justify-between bg-white rounded-xl border border-gray-200 p-5 hover:bg-gray-50 transition text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+            <Home className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Haus-Konfiguration</p>
+            <p className="text-xs text-gray-500">Adresse, Kontakt und Bankverbindung je Haus (für Buchungsbestätigungen)</p>
           </div>
         </div>
         <ChevronRight className="w-4 h-4 text-gray-400" />

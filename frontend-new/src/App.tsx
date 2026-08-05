@@ -12,6 +12,7 @@ import { Analytics } from "@/pages/Analytics";
 import { Guests } from "@/pages/Guests";
 import { Settings } from "@/pages/Settings";
 import { PriceSettings } from "@/pages/PriceSettings";
+import { HouseSettingsPage } from "@/pages/HouseSettings";
 import { Trash } from "@/pages/Trash";
 import { Seed } from "@/pages/Seed";
 
@@ -56,6 +57,7 @@ function AppRoutes() {
         <Route path="/trash" element={<Trash />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/preise" element={<PriceSettings />} />
+        <Route path="/settings/haeuser" element={<HouseSettingsPage />} />
         <Route path="/seed" element={<Seed />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
