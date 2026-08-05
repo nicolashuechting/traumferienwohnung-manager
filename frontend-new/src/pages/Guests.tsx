@@ -21,17 +21,20 @@ function propName(id: string) {
   return properties.find((p) => p.id === id)?.name ?? id;
 }
 
-/** Deduplizierungs-Key: Telefon oder E-Mail wenn vorhanden, sonst Name (lowercase) */
-function guestKey(contact: string, name: string): string {
-  const c = (contact ?? "").trim();
-  if (c) return c.toLowerCase();
+/** Deduplizierungs-Key: E-Mail oder Telefon wenn vorhanden, sonst Name (lowercase) */
+function guestKey(email: string, phone: string, name: string): string {
+  const e = (email ?? "").trim();
+  if (e) return e.toLowerCase();
+  const p = (phone ?? "").trim();
+  if (p) return p.toLowerCase();
   return `__name__${name.toLowerCase().trim()}`;
 }
 
 interface GuestRecord {
   key: string;
   name: string;
-  contact: string;
+  phone: string;
+  email: string;
   totalBookings: number;
   lastStay: string; // ISO
   apartments: Set<string>;
@@ -112,12 +115,20 @@ function GuestCard({ g, onOpenBooking }: { g: GuestRecord; onOpenBooking: (b: Bo
               )}
             </div>
 
-            {g.contact && (
-              <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
-                {g.contact.includes("@")
-                  ? <Mail className="w-3.5 h-3.5 flex-shrink-0" />
-                  : <Phone className="w-3.5 h-3.5 flex-shrink-0" />}
-                <span className="truncate">{g.contact}</span>
+            {(g.phone || g.email) && (
+              <div className="flex flex-col gap-0.5 text-xs text-gray-500 mb-1">
+                {g.phone && (
+                  <div className="flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{g.phone}</span>
+                  </div>
+                )}
+                {g.email && (
+                  <div className="flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{g.email}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -181,12 +192,13 @@ export function Guests() {
   const guests: GuestRecord[] = useMemo(() => {
     const map = new Map<string, GuestRecord>();
     bookings.forEach((b) => {
-      const key = guestKey(b.contact_info, b.guest_name);
+      const key = guestKey(b.email, b.phone, b.guest_name);
       if (!map.has(key)) {
         map.set(key, {
           key,
           name: b.guest_name,
-          contact: b.contact_info ?? "",
+          phone: b.phone ?? "",
+          email: b.email ?? "",
           totalBookings: 0,
           lastStay: b.check_in,
           apartments: new Set(),
@@ -208,7 +220,8 @@ export function Guests() {
     return guests.filter(
       (g) =>
         g.name.toLowerCase().includes(q) ||
-        g.contact.toLowerCase().includes(q) ||
+        g.phone.toLowerCase().includes(q) ||
+        g.email.toLowerCase().includes(q) ||
         g.bookingList.some((b) => (b.booking_number ?? "").toLowerCase().includes(q)),
     );
   }, [guests, search]);

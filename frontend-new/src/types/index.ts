@@ -5,6 +5,29 @@ export interface Property {
   allowsDogs: boolean;
 }
 
+// ── Haus-Konfiguration (für Buchungsbestätigungs-PDF) ─────────────────────────
+// Ein Dokument pro Haus in Firestore (Collection "houseSettings", ID = Property["house"]
+// slug), damit u.a. echte Bankdaten NICHT im Quellcode/Git stehen, sondern nur in Firestore.
+export type HouseId = "haus-anne" | "upstalsboom";
+
+export interface HouseSettings {
+  id: HouseId;
+  name: string;              // "Haus Anne" / "Hus Upstalsboom" — wie im PDF-Kopf verwendet
+  address: string;
+  logoAssetPath: string;     // Pfad zum statischen Logo-Asset im Frontend (kein Firestore-Binärdaten)
+  kontoinhaber: string;
+  iban: string;
+  bank: string;
+  contactEmail: string;
+  phone: string;
+  website: string;
+  footerName: string;        // z.B. "Familien Rothengaß und Hüchting"
+  kurtaxeSuchname: string;   // z.B. "Andreas Hüchting Haus Anne GbR"
+  checkInTime: string;       // "15:00"
+  checkOutTime: string;      // "10:00"
+  stornoText: string[];      // Bullet-Liste, z.B. ["bis zu drei Monate vor Buchungsbeginn: kostenfrei", ...]
+}
+
 // ── Preise ───────────────────────────────────────────────────────────────────
 export type PriceGroupId = "kamin" | "terrasse" | "anne-1" | "anne-2" | "anne-3" | "anne-4" | "anne-5";
 
@@ -59,7 +82,9 @@ export interface Booking {
   booking_number: string; // z.B. "UPS-2026-0001", "" für Altbestand/iCal ohne Nummer
   status: BookingStatus;
   guest_name: string;
-  contact_info: string;
+  contact_info: string; // Altfeld, nur noch lesend als Fallback für phone/email genutzt (siehe normaliseBooking)
+  phone: string;
+  email: string;
   check_in: string;   // "YYYY-MM-DD"
   check_out: string;  // "YYYY-MM-DD"
   ferry_time: string;            // Anreise-Fähre (Neßmersiel → Baltrum)

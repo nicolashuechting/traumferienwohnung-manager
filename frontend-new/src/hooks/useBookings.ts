@@ -55,15 +55,33 @@ function resolveChannel(raw: Record<string, unknown>): string {
   return "Manuell";
 }
 
+// Telefon/E-Mail für Altbestand ohne eigene phone/email-Felder aus dem alten
+// contact_info-Freitextfeld ableiten (nie geschrieben, nur lesend als Fallback).
+function splitContact(raw: Record<string, unknown>): { phone: string; email: string } {
+  const rawPhone = raw.phone as string | undefined;
+  const rawEmail = raw.email as string | undefined;
+  if (typeof rawPhone === "string" || typeof rawEmail === "string") {
+    return { phone: rawPhone ?? "", email: rawEmail ?? "" };
+  }
+  const text = String(raw.contact_info ?? "").trim();
+  const emailMatch = text.match(/[^\s,;]+@[^\s,;]+\.[^\s,;]+/);
+  const email = emailMatch ? emailMatch[0] : "";
+  const phone = text.replace(email, "").replace(/[,;]/g, " ").trim();
+  return { phone, email };
+}
+
 // Normalises a raw Firestore doc — handles both old (camelCase) and new (snake_case) shapes
 function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
+  const { phone, email } = splitContact(raw);
   return {
     id,
     property_id:  resolvePropertyId(raw),
     booking_number: (raw.booking_number ?? "") as string,
     status:       resolveStatus(raw),
     guest_name:   (raw.guest_name   ?? raw.guestName   ?? "") as string,
-    contact_info: (raw.contact_info ?? raw.email ?? raw.phone ?? "") as string,
+    contact_info: (raw.contact_info ?? "") as string,
+    phone,
+    email,
     check_in:     (raw.check_in     ?? raw.checkIn     ?? "") as string,
     check_out:    (raw.check_out    ?? raw.checkOut    ?? "") as string,
     ferry_time:   (raw.ferry_time   ?? raw.ferryTime   ?? "") as string,

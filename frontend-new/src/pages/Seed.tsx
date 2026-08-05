@@ -148,7 +148,8 @@ interface SeedBooking {
   id: string;
   property_id: string;
   guest_name: string;
-  contact_info: string;
+  phone: string;
+  email: string;
   check_in: string;
   check_out: string;
   ferry_time: string;
@@ -239,7 +240,8 @@ function generateBookings(userId: string, settingsMap: Record<PriceGroupId, Pric
           id,
           property_id: propId,
           guest_name: guestName,
-          contact_info: `+49 ${rndInt(151,179)} ${rndInt(1000000,9999999)}`,
+          phone: `+49 ${rndInt(151,179)} ${rndInt(1000000,9999999)}`,
+          email: rnd() < 0.7 ? `${guestName.toLowerCase().replace(/\s+/g, ".")}@example.de` : "",
           check_in: checkInIso,
           check_out: checkOutIso,
           ferry_time: ferryTime,

@@ -124,8 +124,12 @@ function DetailRow({ booking, onEdit, onClose }: { booking: Booking; onEdit: () 
             <p className="text-gray-900 font-mono">{booking.booking_number || "–"}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Kontakt</p>
-            <p className="text-gray-900">{booking.contact_info || "–"}</p>
+            <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Telefon</p>
+            <p className="text-gray-900">{booking.phone || "–"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">E-Mail</p>
+            <p className="text-gray-900">{booking.email || "–"}</p>
           </div>
           <div>
             <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Nächte</p>
@@ -237,7 +241,8 @@ export function Bookings() {
       const q = filters.search.toLowerCase();
       list = list.filter((b) =>
         b.guest_name.toLowerCase().includes(q) ||
-        b.contact_info.toLowerCase().includes(q) ||
+        b.phone.toLowerCase().includes(q) ||
+        b.email.toLowerCase().includes(q) ||
         (b.booking_number ?? "").toLowerCase().includes(q) ||
         propName(b.property_id).toLowerCase().includes(q)
       );

@@ -107,6 +107,8 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       status:       "anfrage",
       guest_name:   ev.summary || "iCal-Buchung",
       contact_info: "",
+      phone:        "",
+      email:        "",
       check_in:     ev.dtstart,
       check_out:    ev.dtend,
       ferry_time:   "",

@@ -104,6 +104,8 @@ const EMPTY_FORM: BookingFormData = {
   status: "anfrage",
   guest_name: "",
   contact_info: "",
+  phone: "",
+  email: "",
   check_in: "",
   check_out: "",
   ferry_time: "",
@@ -747,7 +749,8 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 <ViewRow label="Gast">{current.guest_name || "–"}</ViewRow>
                 <ViewRow label="Anreise">{fmtDate(current.check_in)}</ViewRow>
                 <ViewRow label="Abreise">{fmtDate(current.check_out)}</ViewRow>
-                <ViewRow label="Kontakt">{current.contact_info || "–"}</ViewRow>
+                <ViewRow label="Telefon">{current.phone || "–"}</ViewRow>
+                <ViewRow label="E-Mail">{current.email || "–"}</ViewRow>
                 <ViewRow label="Kanal">{current.channel || "Manuell"}</ViewRow>
                 <ViewRow label="Fähre Anreise">
                   {current.ferry_time ? `${current.ferry_time} Uhr (Neßmersiel → Baltrum)` : "–"}
@@ -896,8 +899,12 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kontakt (Email / Tel.)</label>
-                  <input type="text" value={form.contact_info} onChange={(e) => set("contact_info", e.target.value)} placeholder="mueller@email.de" className={inputCls} />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Telefon</label>
+                  <input type="text" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+49 176 2233445" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
+                  <input type="text" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="mueller@email.de" className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Buchungskanal</label>
