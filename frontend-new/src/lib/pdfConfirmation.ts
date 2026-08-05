@@ -32,7 +32,7 @@ function fmtEUR(n: number): string {
 }
 // "Sehr geehrte Familie {Nachname}" — guest_name speichert i.d.R. Vor- und
 // Nachname, die Referenz-PDFs verwenden aber nur den Nachnamen nach "Familie".
-function surname(guestName: string): string {
+export function surname(guestName: string): string {
   const parts = guestName.trim().split(/\s+/);
   return parts[parts.length - 1] || guestName;
 }

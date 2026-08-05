@@ -7,7 +7,8 @@ import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
-import { generateConfirmationPdf } from "@/lib/pdfConfirmation";
+import { generateConfirmationPdf, surname } from "@/lib/pdfConfirmation";
+import { uploadConfirmationPdf, getLatestConfirmation, type StoredConfirmation } from "@/lib/confirmationStorage";
 import hausAnneLogoUrl from "@/assets/logos/haus-anne.png";
 import upstalsboomLogoUrl from "@/assets/logos/upstalsboom.png";
 import { diffBooking, fieldLabel, formatFieldValue, formatHistoryDate } from "@/lib/bookingHistory";
@@ -366,6 +367,11 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const [includeNewsletter, setIncludeNewsletter] = useState(true);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState("");
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [pdfFileName, setPdfFileName] = useState("");
+  const [pdfUploadError, setPdfUploadError] = useState("");
+  const [pdfSaving, setPdfSaving] = useState(false);
+  const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
 
   // Overlays
   const [showSaveDiff, setShowSaveDiff] = useState(false);
@@ -431,6 +437,11 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setError("");
     setNumberCopied(false);
     setPdfError("");
+    setPdfUploadError("");
+    setPdfBytes(null);
+    setPdfFileName("");
+    setPdfSaving(false);
+    setSavedConfirmation(null);
     setShowSaveDiff(false);
     setPendingSave(null);
     setShowHistory(false);
@@ -438,6 +449,23 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setPendingCollision(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
+
+  // Zuletzt gespeicherte Bestätigung aus Firebase Storage nachladen, damit sie auch nach
+  // dem Wiederöffnen der Buchung (ohne Neu-Erstellen) sichtbar/herunterladbar bleibt.
+  useEffect(() => {
+    if (!open || !booking) return;
+    let cancelled = false;
+    getLatestConfirmation(booking.id)
+      .then((result) => {
+        if (!cancelled && result) setSavedConfirmation(result);
+      })
+      .catch(() => {
+        // still, keine Fehlermeldung nötig – ist nur eine Hintergrund-Anzeige
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, booking]);
 
   // Automatische Neuberechnung bei Datum/Wohnung/Personen/Hund-Änderung, aber nur
   // solange der Preis nicht manuell überschrieben wurde.
@@ -539,17 +567,59 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       return;
     }
     setPdfLoading(true);
+    let bytes: Uint8Array;
     try {
       const logoBytes = await fetch(LOGO_URLS[houseId]).then((r) => r.arrayBuffer()).catch(() => null);
-      const bytes = await generateConfirmationPdf(current, house, logoBytes, { includeNewsletter });
-      const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
+      bytes = await generateConfirmationPdf(current, house, logoBytes, { includeNewsletter });
     } catch (e) {
       setPdfError(`PDF konnte nicht erstellt werden: ${(e as Error).message}`);
-    } finally {
       setPdfLoading(false);
+      return;
     }
+    const blob = new Blob([bytes as BlobPart], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setPdfBytes(bytes);
+    setPdfFileName(`Buchungsbestaetigung_${current.booking_number || current.id}.pdf`);
+    setPdfLoading(false);
+
+    // Ablage in Firebase Storage läuft unabhängig im Hintergrund weiter (blockiert die
+    // Buttons nicht) und bricht nach 20s ab, falls Storage nicht erreichbar ist.
+    setPdfUploadError("");
+    setPdfSaving(true);
+    const bookingId = current.id;
+    const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+      Promise.race([
+        p,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Zeitüberschreitung")), ms)),
+      ]);
+    withTimeout(uploadConfirmationPdf(bookingId, bytes), 20000)
+      .then((result) => setSavedConfirmation(result))
+      .catch((e) => setPdfUploadError(`Ablage in Firebase Storage fehlgeschlagen: ${(e as Error).message}`))
+      .finally(() => setPdfSaving(false));
+  };
+
+  const handleDownloadPdf = () => {
+    if (!pdfBytes) return;
+    const blob = new Blob([pdfBytes as BlobPart], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = pdfFileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleEmailPdf = () => {
+    if (!current) return;
+    const subject = `Ihre Buchungsbestätigung – ${current.booking_number || ""}`;
+    const body =
+      `Liebe Familie ${surname(current.guest_name)},\n\n` +
+      `anbei Ihre Buchungsbestätigung für den Aufenthalt vom ${fmtDate(current.check_in)} bis ${fmtDate(current.check_out)}.\n` +
+      `Bitte das PDF unterschrieben zurücksenden.\n\n` +
+      `Viele Grüße`;
+    const mailto = `mailto:${encodeURIComponent(current.email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(mailto, "_blank");
   };
 
   const copyNumber = async () => {
@@ -974,22 +1044,53 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
               {current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
                 <div className="border border-gray-200 rounded-lg p-4 space-y-3">
                   <span className="text-sm font-semibold text-gray-700">Buchungsbestätigung (PDF)</span>
+                  {savedConfirmation && (
+                    <p className="text-xs text-green-700">
+                      ✓ Bestätigt am{" "}
+                      {new Date(savedConfirmation.timestamp).toLocaleDateString("de-DE")} um{" "}
+                      {new Date(savedConfirmation.timestamp).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr
+                      {" · "}
+                      <a href={savedConfirmation.url} target="_blank" rel="noreferrer" className="underline">
+                        PDF öffnen
+                      </a>
+                    </p>
+                  )}
                   <label className="flex items-center gap-2 text-sm text-gray-600">
                     <input type="checkbox" checked={includeNewsletter} onChange={(e) => setIncludeNewsletter(e.target.checked)} />
                     Newsletter-Frage einschließen
                   </label>
-                  <button
-                    type="button"
-                    onClick={handleGeneratePdf}
-                    disabled={pdfLoading}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
-                  >
-                    {pdfLoading ? "Erstelle…" : "Bestätigung erstellen (Vorschau)"}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleGeneratePdf}
+                      disabled={pdfLoading}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+                    >
+                      {pdfLoading ? "Erstelle…" : "Bestätigung erstellen"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadPdf}
+                      disabled={!pdfBytes}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition disabled:opacity-50"
+                    >
+                      Herunterladen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleEmailPdf}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition disabled:opacity-50"
+                    >
+                      E-Mail
+                    </button>
+                  </div>
                   <p className="text-xs text-gray-400">
-                    Vorläufig: öffnet nur eine Vorschau in neuem Tab. Speichern/Versionierung/E-Mail folgen noch.
+                    Jede erstellte Bestätigung wird zusätzlich als neue Version in Firebase Storage abgelegt.
+                    „E-Mail" öffnet nur das Mailprogramm – die Datei bitte vorher über „Herunterladen" anhängen.
                   </p>
+                  {pdfSaving && <p className="text-xs text-gray-500">Wird in Firebase Storage gespeichert…</p>}
                   {pdfError && <p className="text-sm text-red-600">{pdfError}</p>}
+                  {pdfUploadError && <p className="text-sm text-amber-600">{pdfUploadError}</p>}
                 </div>
               )}
             </>
