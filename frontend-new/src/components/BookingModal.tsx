@@ -1,14 +1,22 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw, Mail } from "lucide-react";
 import { properties } from "@/lib/properties";
 import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings, useTrashedBookings } from "@/hooks/useBookings";
 import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
+import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
 import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
 import { generateConfirmationPdf, surname } from "@/lib/pdfConfirmation";
-import { uploadConfirmationPdf, getLatestConfirmation, type StoredConfirmation } from "@/lib/confirmationStorage";
+import {
+  uploadConfirmationPdf, getLatestConfirmation,
+  uploadOwnConfirmation, getLatestOwnConfirmation,
+  uploadSignedConfirmation, getLatestSignedConfirmation,
+  type StoredConfirmation,
+} from "@/lib/confirmationStorage";
+import { fileToPdfBytes } from "@/lib/fileToPdf";
 import hausAnneLogoUrl from "@/assets/logos/haus-anne.png";
 import upstalsboomLogoUrl from "@/assets/logos/upstalsboom.png";
 import { diffBooking, fieldLabel, formatFieldValue, formatHistoryDate } from "@/lib/bookingHistory";
@@ -18,10 +26,19 @@ import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { priceGroupOf } from "@/lib/priceGroups";
 import { calculatePrice, type PriceResult } from "@/lib/pricing";
 import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
-import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId } from "@/types";
+import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId, Guest } from "@/types";
 
 const FERRY_INPUT_CLS = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 const LOGO_URLS: Record<HouseId, string> = { "haus-anne": hausAnneLogoUrl, "upstalsboom": upstalsboomLogoUrl };
+
+// Firebase Storage kann bei fehlender/fehlerhafter Konfiguration unbegrenzt hängen —
+// bricht nach `ms` mit einem klaren Fehler ab, statt Buttons dauerhaft zu blockieren.
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Zeitüberschreitung")), ms)),
+  ]);
+}
 
 // Fährzeit-Auswahl: Dropdown aus dem Fahrplan, Freitext nur bei "Andere Zeit…"
 function FerryPicker({
@@ -111,6 +128,11 @@ const EMPTY_FORM: BookingFormData = {
   contact_info: "",
   phone: "",
   email: "",
+  street: "",
+  houseNumber: "",
+  zip: "",
+  city: "",
+  country: "",
   check_in: "",
   check_out: "",
   ferry_time: "",
@@ -372,6 +394,18 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const [pdfUploadError, setPdfUploadError] = useState("");
   const [pdfSaving, setPdfSaving] = useState(false);
   const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
+  const [guestSuggestion, setGuestSuggestion] = useState<Guest | null>(null);
+  const [nameCollisionHint, setNameCollisionHint] = useState<string | null>(null);
+  const [personNotes, setPersonNotes] = useState("");
+  const [marketingConsent, setMarketingConsent] = useState(false);
+  const [ownConfirmation, setOwnConfirmation] = useState<StoredConfirmation | null>(null);
+  const [ownUploading, setOwnUploading] = useState(false);
+  const [ownUploadError, setOwnUploadError] = useState("");
+  const [signedConfirmation, setSignedConfirmation] = useState<StoredConfirmation | null>(null);
+  const [signedUploading, setSignedUploading] = useState(false);
+  const [signedUploadError, setSignedUploadError] = useState("");
+  const ownFileInputRef = useRef<HTMLInputElement>(null);
+  const signedFileInputRef = useRef<HTMLInputElement>(null);
 
   // Overlays
   const [showSaveDiff, setShowSaveDiff] = useState(false);
@@ -385,6 +419,8 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const { data: history = [] } = useBookingHistory(current?.id);
   const { data: priceSettings = [] } = usePriceSettings();
   const { data: houseSettings = [] } = useHouseSettings();
+  const { data: guests = [] } = useGuests();
+  const qc = useQueryClient();
   const create = useCreateBooking();
   const update = useUpdateBooking();
   const del = useSoftDeleteBooking();
@@ -442,6 +478,14 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setPdfFileName("");
     setPdfSaving(false);
     setSavedConfirmation(null);
+    setGuestSuggestion(null);
+    setNameCollisionHint(null);
+    setPersonNotes("");
+    setMarketingConsent(false);
+    setOwnConfirmation(null);
+    setOwnUploadError("");
+    setSignedConfirmation(null);
+    setSignedUploadError("");
     setShowSaveDiff(false);
     setPendingSave(null);
     setShowHistory(false);
@@ -450,8 +494,20 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
 
-  // Zuletzt gespeicherte Bestätigung aus Firebase Storage nachladen, damit sie auch nach
-  // dem Wiederöffnen der Buchung (ohne Neu-Erstellen) sichtbar/herunterladbar bleibt.
+  // Personennotizen/Werbemail-Einwilligung sind Gast-Stammdaten, nicht Teil der
+  // Buchung selbst — bei bestehenden Buchungen aus dem passenden Gast-Datensatz laden.
+  useEffect(() => {
+    if (!open || !booking || !booking.email) return;
+    const email = booking.email.trim().toLowerCase();
+    const match = guests.find((g) => g.email.toLowerCase() === email);
+    if (match) {
+      setPersonNotes(match.personNotes);
+      setMarketingConsent(match.marketingConsent);
+    }
+  }, [open, booking, guests]);
+
+  // Zuletzt gespeicherte Bestätigungen (System/Eigene/Unterschriebene) aus Firebase
+  // Storage nachladen, damit sie auch nach dem Wiederöffnen der Buchung sichtbar bleiben.
   useEffect(() => {
     if (!open || !booking) return;
     let cancelled = false;
@@ -462,6 +518,16 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       .catch(() => {
         // still, keine Fehlermeldung nötig – ist nur eine Hintergrund-Anzeige
       });
+    getLatestOwnConfirmation(booking.id)
+      .then((result) => {
+        if (!cancelled && result) setOwnConfirmation(result);
+      })
+      .catch(() => {});
+    getLatestSignedConfirmation(booking.id)
+      .then((result) => {
+        if (!cancelled && result) setSignedConfirmation(result);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -489,6 +555,49 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
 
   const set = <K extends keyof BookingFormData>(key: K, value: BookingFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  // Gast-Erkennung nur beim Neuanlegen (bei bestehenden Buchungen sind Daten schon gesetzt).
+  const handleEmailBlur = () => {
+    if (current) return;
+    const email = form.email.trim().toLowerCase();
+    if (!email) { setGuestSuggestion(null); return; }
+    const match = guests.find((g) => g.email.toLowerCase() === email);
+    setGuestSuggestion(match ?? null);
+  };
+
+  const handleGuestNameBlur = () => {
+    if (current) return;
+    const name = form.guest_name.trim().toLowerCase();
+    if (!name) { setNameCollisionHint(null); return; }
+    const email = form.email.trim().toLowerCase();
+    const match = guests.find((g) => g.name.trim().toLowerCase() === name && g.email.toLowerCase() !== email);
+    setNameCollisionHint(match ? `Es gibt bereits einen Gast mit gleichem Namen (${match.email}) – evtl. dieselbe Person?` : null);
+  };
+
+  const applyGuestSuggestion = (mode: "fill" | "replace") => {
+    if (!guestSuggestion) return;
+    setForm((prev) => {
+      const next = { ...prev };
+      const fields: (keyof Pick<BookingFormData, "guest_name" | "phone" | "street" | "houseNumber" | "zip" | "city" | "country">)[] =
+        ["guest_name", "phone", "street", "houseNumber", "zip", "city", "country"];
+      const source: Record<string, string> = {
+        guest_name: guestSuggestion.name,
+        phone: guestSuggestion.phone,
+        street: guestSuggestion.street,
+        houseNumber: guestSuggestion.houseNumber,
+        zip: guestSuggestion.zip,
+        city: guestSuggestion.city,
+        country: guestSuggestion.country,
+      };
+      fields.forEach((f) => {
+        if (mode === "replace" || !next[f]) next[f] = source[f];
+      });
+      return next;
+    });
+    if (mode === "replace" || !personNotes) setPersonNotes(guestSuggestion.personNotes);
+    setMarketingConsent(guestSuggestion.marketingConsent);
+    setGuestSuggestion(null);
+  };
 
   // Kinderzahl ändern: kinderAlter mitführen — beim Verringern vom Ende
   // abschneiden, beim Erhöhen bestehende Alter erhalten und neue Felder mit 0 auffüllen.
@@ -570,7 +679,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     let bytes: Uint8Array;
     try {
       const logoBytes = await fetch(LOGO_URLS[houseId]).then((r) => r.arrayBuffer()).catch(() => null);
-      bytes = await generateConfirmationPdf(current, house, logoBytes, { includeNewsletter });
+      bytes = await generateConfirmationPdf(current, house, logoBytes, { includeNewsletter: marketingConsent ? false : includeNewsletter });
     } catch (e) {
       setPdfError(`PDF konnte nicht erstellt werden: ${(e as Error).message}`);
       setPdfLoading(false);
@@ -588,11 +697,6 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setPdfUploadError("");
     setPdfSaving(true);
     const bookingId = current.id;
-    const withTimeout = <T,>(p: Promise<T>, ms: number) =>
-      Promise.race([
-        p,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Zeitüberschreitung")), ms)),
-      ]);
     withTimeout(uploadConfirmationPdf(bookingId, bytes), 20000)
       .then((result) => setSavedConfirmation(result))
       .catch((e) => setPdfUploadError(`Ablage in Firebase Storage fehlgeschlagen: ${(e as Error).message}`))
@@ -615,11 +719,48 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     const subject = `Ihre Buchungsbestätigung – ${current.booking_number || ""}`;
     const body =
       `Liebe Familie ${surname(current.guest_name)},\n\n` +
-      `anbei Ihre Buchungsbestätigung für den Aufenthalt vom ${fmtDate(current.check_in)} bis ${fmtDate(current.check_out)}.\n` +
-      `Bitte das PDF unterschrieben zurücksenden.\n\n` +
+      `anbei erhalten Sie Ihre Buchungsbestätigung (Buchungsnummer ${current.booking_number || "–"}) ` +
+      `für Ihren Aufenthalt vom ${fmtDate(current.check_in)} bis ${fmtDate(current.check_out)}.\n\n` +
+      `Bitte füllen Sie die noch offenen Angaben aus, korrigieren Sie ggf. Unstimmigkeiten und senden Sie ` +
+      `uns das unterschriebene Dokument zurück.\n\n` +
+      `Wir freuen uns auf Ihren Besuch!\n\n` +
       `Viele Grüße`;
     const mailto = `mailto:${encodeURIComponent(current.email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, "_blank");
+  };
+
+  const handleOwnFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !current) return;
+    setOwnUploadError("");
+    setOwnUploading(true);
+    try {
+      const bytes = await fileToPdfBytes(file);
+      const result = await withTimeout(uploadOwnConfirmation(current.id, bytes), 20000);
+      setOwnConfirmation(result);
+    } catch (err) {
+      setOwnUploadError((err as Error).message);
+    } finally {
+      setOwnUploading(false);
+    }
+  };
+
+  const handleSignedFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !current) return;
+    setSignedUploadError("");
+    setSignedUploading(true);
+    try {
+      const bytes = await fileToPdfBytes(file);
+      const result = await withTimeout(uploadSignedConfirmation(current.id, bytes), 20000);
+      setSignedConfirmation(result);
+    } catch (err) {
+      setSignedUploadError((err as Error).message);
+    } finally {
+      setSignedUploading(false);
+    }
   };
 
   const copyNumber = async () => {
@@ -647,13 +788,26 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       // Neue Buchung: direkt anlegen (kein Diff)
       try {
         await create.mutateAsync(dataToSave);
+        if (dataToSave.email) {
+          await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent });
+          qc.invalidateQueries({ queryKey: ["guests"] });
+        }
         onClose();
       } catch (e) { setError((e as Error).message); }
       return;
     }
 
     const changes = diffBooking(current, dataToSave);
-    if (changes.length === 0) { setMode("view"); return; }
+    if (changes.length === 0) {
+      // Personennotizen/Einwilligung können sich geändert haben, auch wenn sich sonst
+      // nichts an der Buchung geändert hat — die zählen nicht zum Buchungs-Diff.
+      if (dataToSave.email) {
+        await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent });
+        qc.invalidateQueries({ queryKey: ["guests"] });
+      }
+      setMode("view");
+      return;
+    }
     setPendingSave({ data: dataToSave, changes });
     setShowSaveDiff(true);
   };
@@ -689,6 +843,10 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     if (!current || !pendingSave) return;
     try {
       await update.mutateAsync({ id: current.id, data: pendingSave.data, history: { changes: pendingSave.changes } });
+      if (pendingSave.data.email) {
+        await upsertGuestFields(pendingSave.data.email, { personNotes, marketingConsent });
+        qc.invalidateQueries({ queryKey: ["guests"] });
+      }
       setCurrent({ ...current, ...pendingSave.data });
       setForm(pendingSave.data);
       setShowSaveDiff(false);
@@ -817,11 +975,25 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                 <ViewRow label="Wohnung">{formatFieldValue("property_id", current.property_id)}</ViewRow>
-                <ViewRow label="Gast">{current.guest_name || "–"}</ViewRow>
+                <ViewRow label="Gast">
+                  <span className="inline-flex items-center gap-1.5">
+                    {current.guest_name || "–"}
+                    {marketingConsent && (
+                      <span title="Hat der Werbemail-Zusendung zugestimmt">
+                        <Mail className="w-3.5 h-3.5 text-blue-500" />
+                      </span>
+                    )}
+                  </span>
+                </ViewRow>
                 <ViewRow label="Anreise">{fmtDate(current.check_in)}</ViewRow>
                 <ViewRow label="Abreise">{fmtDate(current.check_out)}</ViewRow>
                 <ViewRow label="Telefon">{current.phone || "–"}</ViewRow>
                 <ViewRow label="E-Mail">{current.email || "–"}</ViewRow>
+                <ViewRow label="Anschrift">
+                  {current.street || current.city
+                    ? [`${current.street} ${current.houseNumber}`.trim(), `${current.zip} ${current.city}`.trim(), current.country].filter(Boolean).join(", ")
+                    : "–"}
+                </ViewRow>
                 <ViewRow label="Kanal">{current.channel || "Manuell"}</ViewRow>
                 <ViewRow label="Fähre Anreise">
                   {current.ferry_time ? `${current.ferry_time} Uhr (Neßmersiel → Baltrum)` : "–"}
@@ -855,6 +1027,9 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
               </div>
               {current.notes && (
                 <ViewRow label="Notizen"><span className="whitespace-pre-wrap">{current.notes}</span></ViewRow>
+              )}
+              {personNotes && (
+                <ViewRow label="Personennotizen"><span className="whitespace-pre-wrap">{personNotes}</span></ViewRow>
               )}
             </>
           )}
@@ -924,7 +1099,10 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Gastname *</label>
-                  <input type="text" value={form.guest_name} onChange={(e) => set("guest_name", e.target.value)} placeholder="Familie Müller" className={inputCls} />
+                  <input type="text" value={form.guest_name} onChange={(e) => set("guest_name", e.target.value)} onBlur={handleGuestNameBlur} placeholder="Familie Müller" className={inputCls} />
+                  {nameCollisionHint && (
+                    <p className="text-xs text-amber-600 mt-1">{nameCollisionHint}</p>
+                  )}
                 </div>
               </div>
 
@@ -966,13 +1144,62 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
-                  <input type="text" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="mueller@email.de" className={inputCls} />
+                  <input type="text" value={form.email} onChange={(e) => set("email", e.target.value)} onBlur={handleEmailBlur} placeholder="mueller@email.de" className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Buchungskanal</label>
                   <select value={form.channel} onChange={(e) => set("channel", e.target.value)} className={inputCls}>
                     {CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
+                </div>
+              </div>
+
+              {guestSuggestion && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm space-y-2">
+                  <p className="text-blue-900">
+                    ✓ Gast bekannt: <span className="font-semibold">{guestSuggestion.name || "–"}</span>
+                    {guestSuggestion.phone && ` · Tel: ${guestSuggestion.phone}`}
+                    {(guestSuggestion.street || guestSuggestion.city) && (
+                      <> · {[`${guestSuggestion.street} ${guestSuggestion.houseNumber}`.trim(), `${guestSuggestion.zip} ${guestSuggestion.city}`.trim(), guestSuggestion.country]
+                        .filter(Boolean).join(", ")}</>
+                    )}
+                  </p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => applyGuestSuggestion("fill")} className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition">
+                      Ergänzen
+                    </button>
+                    <button type="button" onClick={() => applyGuestSuggestion("replace")} className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-white border border-blue-300 hover:bg-blue-50 rounded-lg transition">
+                      Ersetzen
+                    </button>
+                    <button type="button" onClick={() => setGuestSuggestion(null)} className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-blue-100 rounded-lg transition">
+                      Nein, anderer Gast
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-[2fr_1fr] gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Straße</label>
+                  <input type="text" value={form.street} onChange={(e) => set("street", e.target.value)} placeholder="Musterstraße" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nr.</label>
+                  <input type="text" value={form.houseNumber} onChange={(e) => set("houseNumber", e.target.value)} placeholder="12" className={inputCls} />
+                </div>
+              </div>
+              <div className="grid grid-cols-[1fr_2fr_1fr] gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">PLZ</label>
+                  <input type="text" value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder="12345" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ort</label>
+                  <input type="text" value={form.city} onChange={(e) => set("city", e.target.value)} placeholder="Musterstadt" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Land</label>
+                  <input type="text" value={form.country} onChange={(e) => set("country", e.target.value)} placeholder="Deutschland" className={inputCls} />
                 </div>
               </div>
 
@@ -1041,6 +1268,34 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} placeholder="Spezielle Anforderungen, Anmerkungen..." className={`${inputCls} resize-none`} />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Personennotizen
+                  <span className="font-normal text-gray-400"> — gilt für diesen Gast, über alle Buchungen hinweg</span>
+                </label>
+                <textarea
+                  value={personNotes}
+                  onChange={(e) => setPersonNotes(e.target.value)}
+                  disabled={!form.email}
+                  rows={2}
+                  placeholder={form.email ? "z.B. zahlt immer bar, sitzt im Rollstuhl..." : "Nur verfügbar, wenn eine E-Mail hinterlegt ist"}
+                  className={`${inputCls} resize-none disabled:bg-gray-50 disabled:text-gray-400`}
+                />
+                <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={marketingConsent}
+                    onChange={(e) => setMarketingConsent(e.target.checked)}
+                    disabled={!form.email}
+                    className="w-4 h-4 rounded"
+                  />
+                  <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5 text-gray-400" />
+                    Einwilligung Werbemails erhalten (per Unterschrift bestätigt)
+                  </span>
+                </label>
+              </div>
+
               {current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
                 <div className="border border-gray-200 rounded-lg p-4 space-y-3">
                   <span className="text-sm font-semibold text-gray-700">Buchungsbestätigung (PDF)</span>
@@ -1055,10 +1310,16 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                       </a>
                     </p>
                   )}
-                  <label className="flex items-center gap-2 text-sm text-gray-600">
-                    <input type="checkbox" checked={includeNewsletter} onChange={(e) => setIncludeNewsletter(e.target.checked)} />
-                    Newsletter-Frage einschließen
-                  </label>
+                  {marketingConsent ? (
+                    <p className="text-sm text-green-700 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5" /> Hat bereits in Werbemails eingewilligt — Frage wird auf der PDF weggelassen.
+                    </p>
+                  ) : (
+                    <label className="flex items-center gap-2 text-sm text-gray-600">
+                      <input type="checkbox" checked={includeNewsletter} onChange={(e) => setIncludeNewsletter(e.target.checked)} />
+                      Newsletter-Frage einschließen
+                    </label>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1091,6 +1352,54 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   {pdfSaving && <p className="text-xs text-gray-500">Wird in Firebase Storage gespeichert…</p>}
                   {pdfError && <p className="text-sm text-red-600">{pdfError}</p>}
                   {pdfUploadError && <p className="text-sm text-amber-600">{pdfUploadError}</p>}
+                </div>
+              )}
+
+              {current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
+                <div className="border border-gray-200 rounded-lg p-4 grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <span className="text-sm font-semibold text-gray-700">Eigene PDF</span>
+                    {ownConfirmation && (
+                      <p className="text-xs text-green-700">
+                        ✓ Hochgeladen am {new Date(ownConfirmation.timestamp).toLocaleDateString("de-DE")}{" "}
+                        {" · "}
+                        <a href={ownConfirmation.url} target="_blank" rel="noreferrer" className="underline">PDF öffnen</a>
+                      </p>
+                    )}
+                    <input ref={ownFileInputRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={handleOwnFileChange} />
+                    <button
+                      type="button"
+                      onClick={() => ownFileInputRef.current?.click()}
+                      disabled={ownUploading}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition disabled:opacity-50"
+                    >
+                      {ownUploading ? "Lädt hoch…" : "Eigene PDF hochladen"}
+                    </button>
+                    {ownUploadError && <p className="text-xs text-red-600">{ownUploadError}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-sm font-semibold text-gray-700">Unterschriebene PDF</span>
+                    {signedConfirmation && (
+                      <p className="text-xs text-green-700">
+                        ✓ Hochgeladen am {new Date(signedConfirmation.timestamp).toLocaleDateString("de-DE")}{" "}
+                        {" · "}
+                        <a href={signedConfirmation.url} target="_blank" rel="noreferrer" className="underline">PDF öffnen</a>
+                      </p>
+                    )}
+                    <input ref={signedFileInputRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={handleSignedFileChange} />
+                    <button
+                      type="button"
+                      onClick={() => signedFileInputRef.current?.click()}
+                      disabled={signedUploading}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition disabled:opacity-50"
+                    >
+                      {signedUploading ? "Lädt hoch…" : "Unterschriebene PDF hochladen"}
+                    </button>
+                    {signedUploadError && <p className="text-xs text-red-600">{signedUploadError}</p>}
+                  </div>
+                  <p className="col-span-2 text-xs text-gray-400">
+                    PDF oder Foto (JPG/PNG) – Fotos werden automatisch verkleinert und in PDF umgewandelt. Jeder Upload wird als neue Version abgelegt.
+                  </p>
                 </div>
               )}
             </>

@@ -8,6 +8,7 @@ import { db, auth } from "@/lib/firebase";
 import { properties } from "@/lib/properties";
 import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { diffBooking } from "@/lib/bookingHistory";
+import { upsertGuestFromBooking } from "@/hooks/useGuests";
 import type { Booking, BookingFormData, BookingStatus, FieldChange } from "@/types";
 
 // Schreibt einen Historien-Eintrag in die Sub-Collection bookings/{id}/history.
@@ -82,6 +83,11 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
     contact_info: (raw.contact_info ?? "") as string,
     phone,
     email,
+    street:       (raw.street ?? "") as string,
+    houseNumber:  (raw.houseNumber ?? "") as string,
+    zip:          (raw.zip ?? "") as string,
+    city:         (raw.city ?? "") as string,
+    country:      (raw.country ?? "") as string,
     check_in:     (raw.check_in     ?? raw.checkIn     ?? "") as string,
     check_out:    (raw.check_out    ?? raw.checkOut    ?? "") as string,
     ferry_time:   (raw.ferry_time   ?? raw.ferryTime   ?? "") as string,
@@ -151,8 +157,12 @@ export function useCreateBooking() {
       });
       // Erster Historien-Eintrag: Buchung erstellt
       await writeHistory(ref.id, [], "Buchung erstellt");
+      await upsertGuestFromBooking(data);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["bookingsAll"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bookingsAll"] });
+      qc.invalidateQueries({ queryKey: ["guests"] });
+    },
   });
 }
 
@@ -171,6 +181,7 @@ export function useUpdateBooking() {
         updated_at: serverTimestamp(),
       });
       if (history) await writeHistory(id, history.changes, history.note);
+      await upsertGuestFromBooking(data);
     },
     // Optimistic UI: Cache sofort patchen, bei Fehler zurückrollen
     onMutate: async ({ id, data }) => {
@@ -186,6 +197,7 @@ export function useUpdateBooking() {
     },
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: ["bookingsAll"] });
+      qc.invalidateQueries({ queryKey: ["guests"] });
       qc.invalidateQueries({ queryKey: ["bookingHistory", vars.id] });
     },
   });

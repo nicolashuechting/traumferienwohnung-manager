@@ -2,10 +2,11 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ChevronUp, ChevronDown, ChevronsUpDown,
   Plus, SlidersHorizontal, X, Home, CalendarRange, ChevronDown as ChevDown,
-  RefreshCw,
+  RefreshCw, Mail,
 } from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
 import { useIcalFeeds, useSyncIcalFeeds } from "@/hooks/useIcalFeeds";
+import { useGuests } from "@/hooks/useGuests";
 import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
@@ -183,6 +184,11 @@ function channelColor(ch: string) {
 
 export function Bookings() {
   const { data: bookings = [], isLoading } = useBookings();
+  const { data: guests = [] } = useGuests();
+  const consentEmails = useMemo(
+    () => new Set(guests.filter((g) => g.marketingConsent).map((g) => g.email.toLowerCase())),
+    [guests],
+  );
   const { data: feeds = [] } = useIcalFeeds();
   const syncFeeds = useSyncIcalFeeds();
   const [syncMsg, setSyncMsg] = useState("");
@@ -523,7 +529,16 @@ export function Bookings() {
                           {b.channel || "Manuell"}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-gray-900 font-medium min-w-[140px]">{b.guest_name}</td>
+                      <td className="px-3 py-3 text-gray-900 font-medium min-w-[140px]">
+                        <span className="inline-flex items-center gap-1.5">
+                          {b.guest_name}
+                          {b.email && consentEmails.has(b.email.toLowerCase()) && (
+                            <span title="Hat der Werbemail-Zusendung zugestimmt">
+                              <Mail className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                            </span>
+                          )}
+                        </span>
+                      </td>
                       <td className="px-3 py-3 text-gray-700 text-center">
                         <span className="inline-flex items-center gap-1">
                           {b.adults + b.children}

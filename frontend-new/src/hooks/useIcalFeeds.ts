@@ -109,6 +109,11 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       contact_info: "",
       phone:        "",
       email:        "",
+      street:       "",
+      houseNumber:  "",
+      zip:          "",
+      city:         "",
+      country:      "",
       check_in:     ev.dtstart,
       check_out:    ev.dtend,
       ferry_time:   "",
@@ -134,8 +139,15 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
     const existingDocId = existingByUid.get(ev.uid);
     if (existingDocId) {
       // Update existing (dates or summary may have changed)
-      // booking_number und status NICHT überschreiben (vom Nutzer evtl. gesetzt)
-      const { booking_number: _bn, status: _st, ...updatable } = bookingData;
+      // booking_number, status sowie Kontakt-/Adressdaten NICHT überschreiben — die kommen
+      // aus dem iCal-Feed ohnehin immer leer und würden sonst vom Nutzer nachträglich
+      // eingetragene Daten bei jedem Sync wieder auf "" zurücksetzen.
+      const {
+        booking_number: _bn, status: _st,
+        contact_info: _ci, phone: _ph, email: _em,
+        street: _st2, houseNumber: _hn, zip: _zip, city: _city, country: _country,
+        ...updatable
+      } = bookingData;
       await updateDoc(doc(db, "bookings", existingDocId), {
         ...updatable,
         updated_at: serverTimestamp(),

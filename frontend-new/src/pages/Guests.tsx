@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
-import { Star, Mail, Phone, Search, X, ChevronDown, ChevronUp, Calendar, Moon, Home, Hash, Trash2 } from "lucide-react";
+import { Star, Mail, Phone, Search, X, ChevronDown, ChevronUp, Calendar, Moon, Home, Hash, Trash2, Pencil } from "lucide-react";
 import { useBookings, useSoftDeleteBooking } from "@/hooks/useBookings";
+import { useGuests } from "@/hooks/useGuests";
 import { BookingModal } from "@/components/BookingModal";
+import { GuestEditModal } from "@/components/GuestEditModal";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
 import type { Booking } from "@/types";
@@ -35,10 +37,21 @@ interface GuestRecord {
   name: string;
   phone: string;
   email: string;
+  street: string;
+  houseNumber: string;
+  zip: string;
+  city: string;
+  country: string;
+  personNotes: string;
+  marketingConsent: boolean;
   totalBookings: number;
   lastStay: string; // ISO
   apartments: Set<string>;
   bookingList: Booking[];
+}
+
+function fmtAddress(g: { street: string; houseNumber: string; zip: string; city: string; country: string }): string {
+  return [`${g.street} ${g.houseNumber}`.trim(), `${g.zip} ${g.city}`.trim(), g.country].filter(Boolean).join(", ");
 }
 
 // ── Buchungs-Detailzeile ──────────────────────────────────────────────────────
@@ -81,7 +94,7 @@ function BookingRow({ b, onOpen }: { b: Booking; onOpen: (b: Booking) => void })
 }
 
 // ── Gast-Karte ────────────────────────────────────────────────────────────────
-function GuestCard({ g, onOpenBooking }: { g: GuestRecord; onOpenBooking: (b: Booking) => void }) {
+function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking: (b: Booking) => void; onEdit: (g: GuestRecord) => void }) {
   const [open, setOpen] = useState(false);
   const softDelete = useSoftDeleteBooking();
   const sorted = [...g.bookingList].sort((a, b) => b.check_in.localeCompare(a.check_in));
@@ -108,6 +121,11 @@ function GuestCard({ g, onOpenBooking }: { g: GuestRecord; onOpenBooking: (b: Bo
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5">
               <h3 className="text-sm font-semibold text-gray-900">{g.name}</h3>
+              {g.marketingConsent && (
+                <span title="Hat der Werbemail-Zusendung zugestimmt">
+                  <Mail className="w-3.5 h-3.5 text-blue-500" />
+                </span>
+              )}
               {isReturning && (
                 <span title="Stammgast" className="flex items-center gap-0.5 text-xs font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
                   <Star className="w-3 h-3 fill-amber-400 text-amber-400" />Stammgast
@@ -129,7 +147,19 @@ function GuestCard({ g, onOpenBooking }: { g: GuestRecord; onOpenBooking: (b: Bo
                     <span className="truncate">{g.email}</span>
                   </div>
                 )}
+                {fmtAddress(g) && (
+                  <div className="flex items-center gap-1.5">
+                    <Home className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{fmtAddress(g)}</span>
+                  </div>
+                )}
               </div>
+            )}
+
+            {g.personNotes && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1 mb-1 whitespace-pre-wrap">
+                {g.personNotes}
+              </p>
             )}
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400 mt-1">
@@ -150,6 +180,13 @@ function GuestCard({ g, onOpenBooking }: { g: GuestRecord; onOpenBooking: (b: Bo
               <p className="text-2xl font-bold text-blue-600">{g.totalBookings}</p>
               <p className="text-xs text-gray-500">Buchung{g.totalBookings !== 1 ? "en" : ""}</p>
             </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(g); }}
+              title="Gast bearbeiten"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
             <button
               onClick={handleDeleteGuest}
               title="Alle Buchungen dieses Gasts in den Papierkorb verschieben"
@@ -177,12 +214,22 @@ function GuestCard({ g, onOpenBooking }: { g: GuestRecord; onOpenBooking: (b: Bo
   );
 }
 
+type SortKey = "bookings" | "name" | "lastStay";
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "bookings", label: "Anzahl Buchungen" },
+  { value: "name", label: "Name (A-Z)" },
+  { value: "lastStay", label: "Letzter Aufenthalt" },
+];
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function Guests() {
   const { data: bookings = [], isLoading } = useBookings();
+  const { data: guestProfiles = [] } = useGuests();
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("bookings");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingGuest, setEditingGuest] = useState<GuestRecord | null>(null);
 
   function openBooking(b: Booking) {
     setSelectedBooking(b);
@@ -190,15 +237,24 @@ export function Guests() {
   }
 
   const guests: GuestRecord[] = useMemo(() => {
+    const profileByEmail = new Map(guestProfiles.map((p) => [p.email.toLowerCase(), p]));
     const map = new Map<string, GuestRecord>();
     bookings.forEach((b) => {
       const key = guestKey(b.email, b.phone, b.guest_name);
       if (!map.has(key)) {
+        const profile = b.email ? profileByEmail.get(b.email.toLowerCase()) : undefined;
         map.set(key, {
           key,
           name: b.guest_name,
           phone: b.phone ?? "",
           email: b.email ?? "",
+          street: profile?.street ?? "",
+          houseNumber: profile?.houseNumber ?? "",
+          zip: profile?.zip ?? "",
+          city: profile?.city ?? "",
+          country: profile?.country ?? "",
+          personNotes: profile?.personNotes ?? "",
+          marketingConsent: profile?.marketingConsent ?? false,
           totalBookings: 0,
           lastStay: b.check_in,
           apartments: new Set(),
@@ -211,20 +267,26 @@ export function Guests() {
       g.apartments.add(propName(b.property_id));
       g.bookingList.push(b);
     });
-    return [...map.values()].sort((a, b) => b.totalBookings - a.totalBookings);
-  }, [bookings]);
+    return [...map.values()];
+  }, [bookings, guestProfiles]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return guests;
-    const q = search.toLowerCase();
-    return guests.filter(
-      (g) =>
-        g.name.toLowerCase().includes(q) ||
-        g.phone.toLowerCase().includes(q) ||
-        g.email.toLowerCase().includes(q) ||
-        g.bookingList.some((b) => (b.booking_number ?? "").toLowerCase().includes(q)),
-    );
-  }, [guests, search]);
+    const q = search.trim().toLowerCase();
+    const base = !q
+      ? guests
+      : guests.filter(
+          (g) =>
+            g.name.toLowerCase().includes(q) ||
+            g.phone.toLowerCase().includes(q) ||
+            g.email.toLowerCase().includes(q) ||
+            g.bookingList.some((b) => (b.booking_number ?? "").toLowerCase().includes(q)),
+        );
+    const sorted = [...base];
+    if (sortKey === "name") sorted.sort((a, b) => a.name.localeCompare(b.name, "de"));
+    else if (sortKey === "lastStay") sorted.sort((a, b) => b.lastStay.localeCompare(a.lastStay));
+    else sorted.sort((a, b) => b.totalBookings - a.totalBookings);
+    return sorted;
+  }, [guests, search, sortKey]);
 
   if (isLoading) {
     return (
@@ -251,6 +313,14 @@ export function Guests() {
             </p>
           </div>
 
+          <div className="flex items-center gap-2">
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>Sortieren: {o.label}</option>)}
+          </select>
           {/* Suche */}
           <div className="relative w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -270,6 +340,7 @@ export function Guests() {
               </button>
             )}
           </div>
+          </div>
         </div>
       </div>
 
@@ -281,7 +352,7 @@ export function Guests() {
           </div>
         ) : (
           <div className="space-y-3 pb-4">
-            {filtered.map((g) => <GuestCard key={g.key} g={g} onOpenBooking={openBooking} />)}
+            {filtered.map((g) => <GuestCard key={g.key} g={g} onOpenBooking={openBooking} onEdit={setEditingGuest} />)}
           </div>
         )}
       </div>
@@ -290,6 +361,13 @@ export function Guests() {
         open={modalOpen}
         booking={selectedBooking}
         onClose={() => { setModalOpen(false); setSelectedBooking(null); }}
+      />
+      <GuestEditModal
+        open={!!editingGuest}
+        guest={editingGuest}
+        bookingIds={editingGuest?.bookingList.map((b) => b.id) ?? []}
+        totalBookings={editingGuest?.totalBookings ?? 0}
+        onClose={() => setEditingGuest(null)}
       />
     </div>
   );

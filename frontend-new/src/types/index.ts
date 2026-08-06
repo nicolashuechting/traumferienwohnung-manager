@@ -85,6 +85,11 @@ export interface Booking {
   contact_info: string; // Altfeld, nur noch lesend als Fallback für phone/email genutzt (siehe normaliseBooking)
   phone: string;
   email: string;
+  street: string;
+  houseNumber: string;
+  zip: string;
+  city: string;
+  country: string;
   check_in: string;   // "YYYY-MM-DD"
   check_out: string;  // "YYYY-MM-DD"
   ferry_time: string;            // Anreise-Fähre (Neßmersiel → Baltrum)
@@ -111,6 +116,24 @@ export interface Booking {
 }
 
 export type BookingFormData = Omit<Booking, "id" | "userId" | "created_at" | "updated_at" | "deletedAt">;
+
+// ── Gast-Stammdaten ──────────────────────────────────────────────────────────
+// Ein Dokument pro Person (Collection "guests", ID = normalisierte E-Mail), damit
+// Adresse/Kontaktdaten einmal erfasst und bei künftigen Buchungen wiedererkannt
+// werden können. Wird bei jedem Speichern einer Buchung mit E-Mail aktualisiert.
+export interface Guest {
+  email: string;
+  name: string;
+  phone: string;
+  street: string;
+  houseNumber: string;
+  zip: string;
+  city: string;
+  country: string;
+  personNotes: string;       // z.B. "zahlt immer bar", "sitzt im Rollstuhl" — personenbezogen, nicht buchungsbezogen
+  marketingConsent: boolean; // Einwilligung Werbemails, per Unterschrift auf der Buchungsbestätigung erteilt
+  updated_at: string;
+}
 
 // ── Änderungshistorie ────────────────────────────────────────────────────────
 export interface FieldChange {
