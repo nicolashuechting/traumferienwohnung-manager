@@ -106,6 +106,8 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       booking_number: "", // bei neuen Importen unten gesetzt
       status:       "anfrage",
       guest_name:   ev.summary || "iCal-Buchung",
+      guest_first_name: "",
+      guest_last_name:  "",
       contact_info: "",
       phone:        "",
       email:        "",
@@ -146,6 +148,7 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
         booking_number: _bn, status: _st,
         contact_info: _ci, phone: _ph, email: _em,
         street: _st2, houseNumber: _hn, zip: _zip, city: _city, country: _country,
+        guest_first_name: _gfn, guest_last_name: _gln,
         ...updatable
       } = bookingData;
       await updateDoc(doc(db, "bookings", existingDocId), {

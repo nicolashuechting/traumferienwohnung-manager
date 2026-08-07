@@ -11,6 +11,8 @@ async function fetchGuests(): Promise<Guest[]> {
     return {
       email: d.id,
       name: String(raw.name ?? ""),
+      firstName: String(raw.firstName ?? ""),
+      lastName: String(raw.lastName ?? ""),
       phone: String(raw.phone ?? ""),
       street: String(raw.street ?? ""),
       houseNumber: String(raw.houseNumber ?? ""),
@@ -39,6 +41,8 @@ export async function upsertGuestFromBooking(data: Partial<BookingFormData>): Pr
       doc(db, "guests", email),
       {
         name: data.guest_name ?? "",
+        firstName: data.guest_first_name ?? "",
+        lastName: data.guest_last_name ?? "",
         phone: data.phone ?? "",
         street: data.street ?? "",
         houseNumber: data.houseNumber ?? "",
@@ -74,11 +78,12 @@ export async function upsertGuestFields(
 }
 
 // Manuelle Bearbeitung über die Gäste-Übersicht: aktualisiert den Gast-Datensatz UND
-// spiegelt Name/Telefon/E-Mail/Adresse in ALLE bestehenden Buchungen dieser Person
-// zurück (auch alte/abgeschlossene) — im Gegensatz zu upsertGuestFromBooking/
+// spiegelt Vor-/Nachname/Telefon/E-Mail/Adresse in ALLE bestehenden Buchungen dieser
+// Person zurück (auch alte/abgeschlossene) — im Gegensatz zu upsertGuestFromBooking/
 // upsertGuestFields läuft das nicht best-effort, Fehler sollen den Aufrufer erreichen.
 export interface GuestEditFields {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
   street: string;
@@ -98,12 +103,15 @@ export async function updateGuestAndBookings(
   const newEmail = fields.email.trim().toLowerCase();
   if (!newEmail) throw new Error("E-Mail darf nicht leer sein.");
   const oldKey = oldEmail.trim().toLowerCase();
+  const name = [fields.firstName, fields.lastName].filter(Boolean).join(" ").trim();
 
   const batch = writeBatch(db);
   batch.set(
     doc(db, "guests", newEmail),
     {
-      name: fields.name,
+      name,
+      firstName: fields.firstName,
+      lastName: fields.lastName,
       phone: fields.phone,
       street: fields.street,
       houseNumber: fields.houseNumber,
@@ -121,7 +129,9 @@ export async function updateGuestAndBookings(
   }
   bookingIds.forEach((id) => {
     batch.update(doc(db, "bookings", id), {
-      guest_name: fields.name,
+      guest_name: name,
+      guest_first_name: fields.firstName,
+      guest_last_name: fields.lastName,
       phone: fields.phone,
       email: newEmail,
       street: fields.street,

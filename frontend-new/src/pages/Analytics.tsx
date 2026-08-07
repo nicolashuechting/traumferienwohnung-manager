@@ -81,7 +81,7 @@ function delta(curr: number, prev: number) {
 }
 
 // ── Umsatz-Kategorien ─────────────────────────────────────────────────────────
-type RevenueCategory = "nights" | "cleaning" | "dog" | "laundry" | "manual";
+type RevenueCategory = "nights" | "cleaning" | "dog" | "laundry" | "manual" | "total";
 
 const CATEGORY_LABELS: Record<RevenueCategory, string> = {
   nights:   "Übernachtungen",
@@ -89,6 +89,7 @@ const CATEGORY_LABELS: Record<RevenueCategory, string> = {
   dog:      "Hund",
   laundry:  "Wäsche",
   manual:   "Manuell",
+  total:    "Gesamtumsatz",
 };
 const CATEGORY_COLORS: Record<RevenueCategory, string> = {
   nights:   "#1d4ed8",
@@ -96,37 +97,45 @@ const CATEGORY_COLORS: Record<RevenueCategory, string> = {
   dog:      "#d97706",
   laundry:  "#7c3aed",
   manual:   "#6b7280",
+  total:    "#10b981",
 };
+// Die 5 echten Einzelkategorien — Standard-Sichtbarkeit und Summenbildung
+// basieren hierauf. "Gesamtumsatz" ist eine abgeleitete Zusatzkategorie, die in
+// der Legende erscheint, aber standardmäßig nicht mit ausgewählt ist.
 const ALL_CATEGORIES: RevenueCategory[] = ["nights", "cleaning", "dog", "laundry", "manual"];
+const DISPLAY_CATEGORIES: RevenueCategory[] = [...ALL_CATEGORIES, "total"];
 // Flache Top-Level-Keys fürs Chart-Stacking — Recharts berechnet die Achsen-Domain
 // bei gestapelten Bars über den dataKey-String; ein Funktions-Accessor auf ein
 // verschachteltes Objekt wird dabei nicht korrekt für die Skalierung ausgewertet.
 const CATEGORY_DATA_KEY: Record<RevenueCategory, string> = {
   nights: "cat_nights", cleaning: "cat_cleaning", dog: "cat_dog", laundry: "cat_laundry", manual: "cat_manual",
+  total: "cat_total",
 };
 
-// Zerlegt eine Buchung in Umsatz-Kategorien. Nur wenn die gespeicherte
-// Aufschlüsselung rechnerisch noch exakt zum aktuellen `price` summiert (Toleranz
-// 0,01 € für Rundung), wird aufgeteilt — sonst zählt der volle Betrag als
-// "Manuell" (deckt sowohl echte Freitext-Preise als auch nachträglich über den
-// Gesamtpreis überschriebene, dadurch veraltete Aufschlüsselungen ab).
+// Zerlegt eine Buchung in Umsatz-Kategorien (inkl. "total" = Summe aller
+// Kategorien). Nur wenn die gespeicherte Aufschlüsselung rechnerisch noch exakt
+// zum aktuellen `price` summiert (Toleranz 0,01 € für Rundung), wird aufgeteilt —
+// sonst zählt der volle Betrag als "Manuell" (deckt sowohl echte Freitext-Preise
+// als auch nachträglich über den Gesamtpreis überschriebene, dadurch veraltete
+// Aufschlüsselungen ab).
 function revenueBreakdownOf(b: Booking): Record<RevenueCategory, number> {
-  const zero: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
+  const zero: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
+  const price = b.price ?? 0;
   const bd = b.priceBreakdown;
-  if (!bd) return { ...zero, manual: b.price ?? 0 };
+  if (!bd) return { ...zero, manual: price, total: price };
   const nightsSum = bd.nights.reduce((s, n) => s + n.price, 0);
   const extraFeesSum = bd.extraFees.reduce((s, f) => s + f.amount, 0);
   const breakdownSum = nightsSum + bd.cleaningFee + bd.dogFee + extraFeesSum;
-  const consistent = Math.abs(breakdownSum - (b.price ?? 0)) < 0.01;
-  if (!consistent) return { ...zero, manual: b.price ?? 0 };
-  return { nights: nightsSum, cleaning: bd.cleaningFee, dog: bd.dogFee, laundry: extraFeesSum, manual: 0 };
+  const consistent = Math.abs(breakdownSum - price) < 0.01;
+  if (!consistent) return { ...zero, manual: price, total: price };
+  return { nights: nightsSum, cleaning: bd.cleaningFee, dog: bd.dogFee, laundry: extraFeesSum, manual: 0, total: price };
 }
 
 function calcRevenueByCategory(bookings: Booking[], y: number, m?: number) {
   const inPeriod = bookings.filter((b) =>
     (m ? bookingInMonth(b, y, m) : bookingInYear(b, y)) && REVENUE_STATUSES.includes(b.status));
-  const revenueByCategory: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
-  const countByCategory:   Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
+  const revenueByCategory: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
+  const countByCategory:   Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
   inPeriod.forEach((b) => {
     const bd = revenueBreakdownOf(b);
     (Object.keys(bd) as RevenueCategory[]).forEach((cat) => {
@@ -354,7 +363,7 @@ export function Analytics() {
 
   // Bei Upstalsboom-Filter gibt es strukturell kein Wäschepaket — Kategorie ganz weglassen.
   const availableCategories = useMemo(
-    () => propFilter === "Upstalsboom" ? ALL_CATEGORIES.filter((c) => c !== "laundry") : ALL_CATEGORIES,
+    () => propFilter === "Upstalsboom" ? DISPLAY_CATEGORIES.filter((c) => c !== "laundry") : DISPLAY_CATEGORIES,
     [propFilter]
   );
   const effectiveVisible = useMemo(
@@ -398,6 +407,7 @@ export function Analytics() {
         cat_dog:      revenueByCategory.dog,
         cat_laundry:  revenueByCategory.laundry,
         cat_manual:   revenueByCategory.manual,
+        cat_total:    revenueByCategory.total,
       };
     }),
     [periods, bookings, filteredProps]
@@ -418,9 +428,9 @@ export function Analytics() {
   );
 
   const categoryTotals = useMemo(() => {
-    const totals: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0 };
+    const totals: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
     periodStats.forEach((p) => {
-      ALL_CATEGORIES.forEach((cat) => { totals[cat] += p.revenueByCategory[cat]; });
+      DISPLAY_CATEGORIES.forEach((cat) => { totals[cat] += p.revenueByCategory[cat]; });
     });
     return totals;
   }, [periodStats]);
@@ -582,15 +592,12 @@ export function Analytics() {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Umsatz</p>
             <Euro className="w-4 h-4 text-emerald-600 flex-shrink-0" />
           </div>
-          <div className="flex items-end justify-between flex-wrap gap-4">
-            <div>
-              <p className="text-3xl font-bold text-gray-900 mt-1">{summary.totalRevenue.toLocaleString("de-DE")} €</p>
-              <div className="mt-1">
-                <CompareRow curr={summary.totalRevenue} prev={prevSummary.totalRevenue}
-                  formatVal={(n) => `${n.toLocaleString("de-DE")} €`} />
-              </div>
+          <div>
+            <p className="text-3xl font-bold text-gray-900 mt-1">{summary.totalRevenue.toLocaleString("de-DE")} €</p>
+            <div className="mt-1">
+              <CompareRow curr={summary.totalRevenue} prev={prevSummary.totalRevenue}
+                formatVal={(n) => `${n.toLocaleString("de-DE")} €`} />
             </div>
-            <div className="w-full sm:w-48"><Sparkline data={periodStats.map((p) => p.revenue)} color="#10b981" /></div>
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-100">

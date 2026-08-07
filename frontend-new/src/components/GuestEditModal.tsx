@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { X, Mail } from "lucide-react";
 import { updateGuestAndBookings, type GuestEditFields } from "@/hooks/useGuests";
+import { splitGuestName } from "@/lib/guestName";
 
 const inputCls = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 
@@ -11,6 +12,8 @@ interface Props {
   guest: {
     email: string;
     name: string;
+    firstName: string;
+    lastName: string;
     phone: string;
     street: string;
     houseNumber: string;
@@ -27,7 +30,7 @@ interface Props {
 export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings }: Props) {
   const qc = useQueryClient();
   const [form, setForm] = useState<GuestEditFields>({
-    name: "", email: "", phone: "", street: "", houseNumber: "", zip: "", city: "", country: "",
+    firstName: "", lastName: "", email: "", phone: "", street: "", houseNumber: "", zip: "", city: "", country: "",
     personNotes: "", marketingConsent: false,
   });
   const [saving, setSaving] = useState(false);
@@ -35,8 +38,14 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
 
   useEffect(() => {
     if (!open || !guest) return;
+    // Altbestand ohne getrennte Felder: für die Bearbeitung best-effort aus name vorbefüllen.
+    const hasSplitName = guest.firstName || guest.lastName;
+    const { first, last } = hasSplitName
+      ? { first: guest.firstName, last: guest.lastName }
+      : splitGuestName(guest.name);
     setForm({
-      name: guest.name,
+      firstName: first,
+      lastName: last,
       email: guest.email,
       phone: guest.phone,
       street: guest.street,
@@ -91,9 +100,15 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
             </p>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-            <input type="text" value={form.name} onChange={(e) => set("name", e.target.value)} className={inputCls} />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Vorname</label>
+              <input type="text" value={form.firstName} onChange={(e) => set("firstName", e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nachname</label>
+              <input type="text" value={form.lastName} onChange={(e) => set("lastName", e.target.value)} className={inputCls} />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

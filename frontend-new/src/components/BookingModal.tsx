@@ -9,7 +9,8 @@ import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
 import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
-import { generateConfirmationPdf, surname } from "@/lib/pdfConfirmation";
+import { generateConfirmationPdf, resolveLastName } from "@/lib/pdfConfirmation";
+import { splitGuestName } from "@/lib/guestName";
 import {
   uploadConfirmationPdf, getLatestConfirmation,
   uploadOwnConfirmation, getLatestOwnConfirmation,
@@ -125,6 +126,8 @@ const EMPTY_FORM: BookingFormData = {
   booking_number: "",
   status: "anfrage",
   guest_name: "",
+  guest_first_name: "",
+  guest_last_name: "",
   contact_info: "",
   phone: "",
   email: "",
@@ -155,7 +158,15 @@ const EMPTY_FORM: BookingFormData = {
 
 function formOf(b: Booking): BookingFormData {
   const { id: _i, userId: _u, created_at: _c, updated_at: _up, ...rest } = b;
-  return rest as BookingFormData;
+  const form = rest as BookingFormData;
+  // Altbestand ohne getrennte Felder: für die Bearbeitung best-effort aus guest_name
+  // vorbefüllen, damit die Felder nicht leer erscheinen — wird beim Speichern
+  // ggf. korrigiert und dann als guest_first_name/guest_last_name persistiert.
+  if (!form.guest_first_name && !form.guest_last_name && form.guest_name) {
+    const { first, last } = splitGuestName(form.guest_name);
+    return { ...form, guest_first_name: first, guest_last_name: last };
+  }
+  return form;
 }
 
 function fmtDate(iso: string) {
@@ -567,7 +578,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
 
   const handleGuestNameBlur = () => {
     if (current) return;
-    const name = form.guest_name.trim().toLowerCase();
+    const name = [form.guest_first_name, form.guest_last_name].filter(Boolean).join(" ").trim().toLowerCase();
     if (!name) { setNameCollisionHint(null); return; }
     const email = form.email.trim().toLowerCase();
     const match = guests.find((g) => g.name.trim().toLowerCase() === name && g.email.toLowerCase() !== email);
@@ -576,12 +587,17 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
 
   const applyGuestSuggestion = (mode: "fill" | "replace") => {
     if (!guestSuggestion) return;
+    const hasSplitName = guestSuggestion.firstName || guestSuggestion.lastName;
+    const { first: suggestedFirst, last: suggestedLast } = hasSplitName
+      ? { first: guestSuggestion.firstName, last: guestSuggestion.lastName }
+      : splitGuestName(guestSuggestion.name);
     setForm((prev) => {
       const next = { ...prev };
-      const fields: (keyof Pick<BookingFormData, "guest_name" | "phone" | "street" | "houseNumber" | "zip" | "city" | "country">)[] =
-        ["guest_name", "phone", "street", "houseNumber", "zip", "city", "country"];
+      const fields: (keyof Pick<BookingFormData, "guest_first_name" | "guest_last_name" | "phone" | "street" | "houseNumber" | "zip" | "city" | "country">)[] =
+        ["guest_first_name", "guest_last_name", "phone", "street", "houseNumber", "zip", "city", "country"];
       const source: Record<string, string> = {
-        guest_name: guestSuggestion.name,
+        guest_first_name: suggestedFirst,
+        guest_last_name: suggestedLast,
         phone: guestSuggestion.phone,
         street: guestSuggestion.street,
         houseNumber: guestSuggestion.houseNumber,
@@ -718,7 +734,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     if (!current) return;
     const subject = `Ihre Buchungsbestätigung – ${current.booking_number || ""}`;
     const body =
-      `Liebe Familie ${surname(current.guest_name)},\n\n` +
+      `Liebe Familie ${resolveLastName(current)},\n\n` +
       `anbei erhalten Sie Ihre Buchungsbestätigung (Buchungsnummer ${current.booking_number || "–"}) ` +
       `für Ihren Aufenthalt vom ${fmtDate(current.check_in)} bis ${fmtDate(current.check_out)}.\n\n` +
       `Bitte füllen Sie die noch offenen Angaben aus, korrigieren Sie ggf. Unstimmigkeiten und senden Sie ` +
@@ -775,7 +791,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   };
 
   const validate = (): boolean => {
-    if (!form.guest_name.trim()) { setError("Gastname ist erforderlich."); return false; }
+    if (!form.guest_last_name.trim()) { setError("Nachname ist erforderlich."); return false; }
     if (!form.check_in || !form.check_out) { setError("Check-in und Check-out sind erforderlich."); return false; }
     if (form.check_in >= form.check_out) { setError("Check-out muss nach Check-in liegen."); return false; }
     setError("");
@@ -815,7 +831,8 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   // "Speichern" im Bearbeiten-Modus
   const handleSaveClick = async () => {
     if (!validate()) return;
-    const dataToSave: BookingFormData = { ...form, booking_number: ensureNumber(form) };
+    const guest_name = [form.guest_first_name, form.guest_last_name].filter(Boolean).join(" ").trim() || form.guest_name;
+    const dataToSave: BookingFormData = { ...form, guest_name, booking_number: ensureNumber(form) };
 
     const conflict = findCollision(
       allBookings, dataToSave.property_id, current?.id ?? "",
@@ -1084,7 +1101,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Wohnung</label>
                   <select value={form.property_id} onChange={(e) => set("property_id", e.target.value)} className={inputCls}>
@@ -1098,8 +1115,12 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Gastname *</label>
-                  <input type="text" value={form.guest_name} onChange={(e) => set("guest_name", e.target.value)} onBlur={handleGuestNameBlur} placeholder="Familie Müller" className={inputCls} />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Vorname</label>
+                  <input type="text" value={form.guest_first_name} onChange={(e) => set("guest_first_name", e.target.value)} onBlur={handleGuestNameBlur} placeholder="Max" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nachname *</label>
+                  <input type="text" value={form.guest_last_name} onChange={(e) => set("guest_last_name", e.target.value)} onBlur={handleGuestNameBlur} placeholder="Müller" className={inputCls} />
                   {nameCollisionHint && (
                     <p className="text-xs text-amber-600 mt-1">{nameCollisionHint}</p>
                   )}

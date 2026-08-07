@@ -6,6 +6,7 @@ import { BookingModal } from "@/components/BookingModal";
 import { GuestEditModal } from "@/components/GuestEditModal";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
+import { splitGuestName } from "@/lib/guestName";
 import type { Booking } from "@/types";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -35,6 +36,8 @@ function guestKey(email: string, phone: string, name: string): string {
 interface GuestRecord {
   key: string;
   name: string;
+  firstName: string;
+  lastName: string;
   phone: string;
   email: string;
   street: string;
@@ -217,7 +220,7 @@ function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking
 type SortKey = "bookings" | "name" | "lastStay";
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "bookings", label: "Anzahl Buchungen" },
-  { value: "name", label: "Name (A-Z)" },
+  { value: "name", label: "Nachname (A-Z)" },
   { value: "lastStay", label: "Letzter Aufenthalt" },
 ];
 
@@ -243,9 +246,13 @@ export function Guests() {
       const key = guestKey(b.email, b.phone, b.guest_name);
       if (!map.has(key)) {
         const profile = b.email ? profileByEmail.get(b.email.toLowerCase()) : undefined;
+        const combinedName = profile?.name || b.guest_name;
+        const heuristicSplit = splitGuestName(combinedName);
         map.set(key, {
           key,
-          name: b.guest_name,
+          name: combinedName,
+          firstName: profile?.firstName || b.guest_first_name || heuristicSplit.first,
+          lastName:  profile?.lastName  || b.guest_last_name  || heuristicSplit.last,
           phone: b.phone ?? "",
           email: b.email ?? "",
           street: profile?.street ?? "",
@@ -282,7 +289,7 @@ export function Guests() {
             g.bookingList.some((b) => (b.booking_number ?? "").toLowerCase().includes(q)),
         );
     const sorted = [...base];
-    if (sortKey === "name") sorted.sort((a, b) => a.name.localeCompare(b.name, "de"));
+    if (sortKey === "name") sorted.sort((a, b) => a.lastName.localeCompare(b.lastName, "de"));
     else if (sortKey === "lastStay") sorted.sort((a, b) => b.lastStay.localeCompare(a.lastStay));
     else sorted.sort((a, b) => b.totalBookings - a.totalBookings);
     return sorted;

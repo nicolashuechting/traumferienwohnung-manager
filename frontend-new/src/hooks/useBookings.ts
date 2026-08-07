@@ -20,6 +20,7 @@ async function writeHistory(bookingId: string, changes: FieldChange[], note?: st
       changes,
       note: note ?? "",
       userId: auth.currentUser?.uid ?? "",
+      userEmail: auth.currentUser?.email ?? "",
       created_at: serverTimestamp(),
     });
   } catch (e) {
@@ -80,6 +81,8 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
     booking_number: (raw.booking_number ?? "") as string,
     status:       resolveStatus(raw),
     guest_name:   (raw.guest_name   ?? raw.guestName   ?? "") as string,
+    guest_first_name: (raw.guest_first_name ?? "") as string,
+    guest_last_name:  (raw.guest_last_name ?? "") as string,
     contact_info: (raw.contact_info ?? "") as string,
     phone,
     email,

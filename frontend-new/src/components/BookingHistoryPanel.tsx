@@ -1,5 +1,7 @@
-import { Clock, X, RotateCcw, ArrowRight } from "lucide-react";
+import { useMemo } from "react";
+import { Clock, X, RotateCcw, ArrowRight, User } from "lucide-react";
 import { useBookingHistory } from "@/hooks/useBookingHistory";
+import { useAllowedUsers } from "@/hooks/useAllowedUsers";
 import { fieldLabel, formatFieldValue, formatHistoryTime } from "@/lib/bookingHistory";
 import type { BookingHistoryEntry } from "@/types";
 
@@ -9,8 +11,22 @@ interface Props {
   onClose: () => void;
 }
 
+// Löst userEmail auf den hinterlegten Klarnamen aus "allowedUsers" auf — fällt
+// auf die E-Mail zurück, wenn kein displayName gepflegt ist, bzw. bleibt leer
+// bei älteren Einträgen von vor Einführung des Felds (nur userId vorhanden).
+function resolveUserLabel(entry: BookingHistoryEntry, namesByEmail: Map<string, string>): string {
+  const email = entry.userEmail ?? "";
+  if (!email) return "";
+  return namesByEmail.get(email.toLowerCase()) || email;
+}
+
 export function BookingHistoryPanel({ bookingId, onRestore, onClose }: Props) {
   const { data: entries = [], isLoading } = useBookingHistory(bookingId);
+  const { data: allowedUsers = [] } = useAllowedUsers();
+  const namesByEmail = useMemo(
+    () => new Map(allowedUsers.filter((u) => u.displayName).map((u) => [u.email.toLowerCase(), u.displayName])),
+    [allowedUsers],
+  );
 
   return (
     <div className="absolute inset-0 z-20 bg-white rounded-xl flex flex-col">
@@ -37,6 +53,7 @@ export function BookingHistoryPanel({ bookingId, onRestore, onClose }: Props) {
           <ol className="space-y-3">
             {entries.map((entry) => {
               const restorable = entry.changes.length > 0;
+              const userLabel = resolveUserLabel(entry, namesByEmail);
               return (
                 <li key={entry.id}>
                   <div
@@ -48,7 +65,14 @@ export function BookingHistoryPanel({ bookingId, onRestore, onClose }: Props) {
                     role={restorable ? "button" : undefined}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="text-xs font-semibold text-gray-500">{formatHistoryTime(entry.created_at)}</span>
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500">
+                        {formatHistoryTime(entry.created_at)}
+                        {userLabel && (
+                          <span className="flex items-center gap-0.5 font-medium text-gray-400">
+                            <User className="w-3 h-3" />{userLabel}
+                          </span>
+                        )}
+                      </span>
                       {restorable && (
                         <span className="flex items-center gap-1 text-xs font-medium text-blue-600">
                           <RotateCcw className="w-3.5 h-3.5" /> Wiederherstellen

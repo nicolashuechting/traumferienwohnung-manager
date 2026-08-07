@@ -81,7 +81,10 @@ export interface Booking {
   property_id: string;
   booking_number: string; // z.B. "UPS-2026-0001", "" für Altbestand/iCal ohne Nummer
   status: BookingStatus;
-  guest_name: string;
+  guest_name: string;       // kombiniert, aus Vor-/Nachname abgeleitet — für Anzeige (Kalender, Listen etc.)
+  guest_first_name: string;
+  guest_last_name: string;  // primäres Feld für Anrede ("Familie {guest_last_name}") — bei Altbestand leer,
+                             // dort greift die surname()-Heuristik auf guest_name als Fallback
   contact_info: string; // Altfeld, nur noch lesend als Fallback für phone/email genutzt (siehe normaliseBooking)
   phone: string;
   email: string;
@@ -123,7 +126,9 @@ export type BookingFormData = Omit<Booking, "id" | "userId" | "created_at" | "up
 // werden können. Wird bei jedem Speichern einer Buchung mit E-Mail aktualisiert.
 export interface Guest {
   email: string;
-  name: string;
+  name: string;       // kombiniert, aus firstName/lastName abgeleitet — für Anzeige
+  firstName: string;
+  lastName: string;
   phone: string;
   street: string;
   houseNumber: string;
@@ -147,7 +152,17 @@ export interface BookingHistoryEntry {
   changes: FieldChange[];
   note?: string;                       // z.B. "Buchung erstellt" / "Wiederhergestellt …"
   userId?: string;
+  userEmail?: string;                  // ab Einführung dieses Felds gesetzt; ältere Einträge haben es nicht
   created_at: unknown;                 // Firestore Timestamp
+}
+
+// ── Whitelist-Nutzer ─────────────────────────────────────────────────────────
+// Ein Dokument pro erlaubtem Nutzer (Collection "allowedUsers", ID = normalisierte
+// E-Mail). Wird u.a. genutzt, um in der Buchungshistorie einen lesbaren Namen
+// statt der rohen Firebase-Auth-UID anzuzeigen.
+export interface AllowedUser {
+  email: string;
+  displayName: string;
 }
 
 // iCal feed stored in Firestore

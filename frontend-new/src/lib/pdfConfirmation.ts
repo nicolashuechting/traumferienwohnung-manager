@@ -32,9 +32,18 @@ function fmtEUR(n: number): string {
 }
 // "Sehr geehrte Familie {Nachname}" — guest_name speichert i.d.R. Vor- und
 // Nachname, die Referenz-PDFs verwenden aber nur den Nachnamen nach "Familie".
+// Fallback-Heuristik für Altbestand ohne getrennte Vor-/Nachname-Felder — errät
+// den Nachnamen als letztes Wort, was bei Doppelnamen/Adelstiteln danebenliegen
+// kann. Neue Buchungen sollten stattdessen guest_last_name direkt nutzen.
 export function surname(guestName: string): string {
   const parts = guestName.trim().split(/\s+/);
   return parts[parts.length - 1] || guestName;
+}
+
+// Bevorzugt das explizite guest_last_name-Feld; fällt bei Altbestand ohne
+// getrennte Felder auf die surname()-Heuristik über guest_name zurück.
+export function resolveLastName(booking: Booking): string {
+  return booking.guest_last_name?.trim() || surname(booking.guest_name);
 }
 
 function dateMinusDays(iso: string, days: number): string {
@@ -359,7 +368,7 @@ export async function generateConfirmationPdf(
   // damit kein unnötig großer Leerraum unter dem Logo entsteht.
   const logoBottom = logoDims ? titleTop - logoDims.height : null;
   const besideLogoW = logoDims ? CONTENT_W - logoDims.width - 16 : CONTENT_W;
-  cursor.paragraph(`Sehr geehrte Familie ${surname(booking.guest_name)}`, { maxWidth: besideLogoW });
+  cursor.paragraph(`Sehr geehrte Familie ${resolveLastName(booking)}`, { maxWidth: besideLogoW });
   cursor.gap(4);
   cursor.mixedParagraph(reservationSegments(booking), { maxWidth: besideLogoW });
   // Falls das Logo tiefer reicht als der Text daneben, erst ab Logo-Unterkante weitermachen.
