@@ -4,6 +4,7 @@ import { CalendarGrid, type CalendarGridHandle } from "@/components/CalendarGrid
 import { SingleCalendarView, type SingleCalendarViewHandle } from "@/components/SingleCalendarView";
 import { BookingModal } from "@/components/BookingModal";
 import { useBookings } from "@/hooks/useBookings";
+import { useUserRole } from "@/hooks/useUserRole";
 import { properties } from "@/lib/properties";
 import type { Booking } from "@/types";
 
@@ -11,6 +12,7 @@ type ViewMode = "multi" | "single";
 
 export function Calendar() {
   const { data: bookings = [], isLoading, error } = useBookings();
+  const { isViewer } = useUserRole();
   const [viewMode, setViewMode] = useState<ViewMode>("multi");
   const [selectedPropertyId, setSelectedPropertyId] = useState(properties[0].id);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -111,15 +113,18 @@ export function Calendar() {
           )}
         </div>
 
-        <button
-          onClick={openNew}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
-        >
-          <Plus className="w-4 h-4" /> Neue Buchung
-        </button>
+        {!isViewer && (
+          <button
+            onClick={openNew}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
+          >
+            <Plus className="w-4 h-4" /> Neue Buchung
+          </button>
+        )}
       </div>
 
       {/* Hint bar */}
+      {!isViewer && (
       <div className="px-6 py-2 bg-blue-50 border-b border-blue-100">
         {viewMode === "multi" ? (
           <p className="text-xs text-blue-600">
@@ -133,6 +138,7 @@ export function Calendar() {
           </p>
         )}
       </div>
+      )}
 
       {/* Calendar area */}
       <div className="flex-1 overflow-auto bg-white relative">

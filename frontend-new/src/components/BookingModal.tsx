@@ -7,6 +7,7 @@ import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
+import { useUserRole } from "@/hooks/useUserRole";
 import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
 import { generateConfirmationPdf, resolveLastName } from "@/lib/pdfConfirmation";
@@ -27,7 +28,10 @@ import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { priceGroupOf } from "@/lib/priceGroups";
 import { calculatePrice, type PriceResult } from "@/lib/pricing";
 import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
-import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId, Guest } from "@/types";
+import { NotifyDialog } from "@/components/NotifyDialog";
+import { shouldNotify } from "@/lib/bookingNotify";
+import { sendChangeNotification } from "@/lib/notifyEmail";
+import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId, HouseSettings, Guest } from "@/types";
 
 const FERRY_INPUT_CLS = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 const LOGO_URLS: Record<HouseId, string> = { "haus-anne": hausAnneLogoUrl, "upstalsboom": upstalsboomLogoUrl };
@@ -424,12 +428,21 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const [showHistory, setShowHistory] = useState(false);
   const [restoreEntry, setRestoreEntry] = useState<BookingHistoryEntry | null>(null);
   const [pendingCollision, setPendingCollision] = useState<{ data: BookingFormData; conflict: Booking } | null>(null);
+  const [notifyPrompt, setNotifyPrompt] = useState<{
+    booking: BookingFormData;
+    changes: FieldChange[];
+    kind: "create" | "update" | "cancel";
+    house: HouseSettings;
+    proceed: () => Promise<void>;
+  } | null>(null);
+  const [notifyError, setNotifyError] = useState("");
 
   const { data: allBookings = [] } = useBookings();
   const { data: trashedBookings = [] } = useTrashedBookings();
   const { data: history = [] } = useBookingHistory(current?.id);
   const { data: priceSettings = [] } = usePriceSettings();
   const { data: houseSettings = [] } = useHouseSettings();
+  const { isViewer } = useUserRole();
   const { data: guests = [] } = useGuests();
   const qc = useQueryClient();
   const create = useCreateBooking();
@@ -798,18 +811,71 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     return true;
   };
 
+  // Haus-Konfiguration für die Wohnung einer Buchung (Absender/Empfänger für Benachrichtigungen, s.u.).
+  const houseFor = (propertyId: string): HouseSettings | undefined => {
+    const prop = properties.find((p) => p.id === propertyId);
+    const houseId: HouseId = prop?.house === "Haus Anne" ? "haus-anne" : "upstalsboom";
+    return houseSettings.find((h) => h.id === houseId);
+  };
+
+  // Prüft, ob eine Änderung (Neuanlage/Update/Stornierung) eine Benachrichtigung an die
+  // Vermieterin auslösen soll (kurzfristige, relevante Änderung); zeigt ggf. den
+  // Bestätigungsdialog statt direkt zu speichern. `proceed` führt die eigentliche
+  // Firestore-Schreibaktion aus — sowohl bei "Ja" (nach Mailversand) als auch bei "Nein".
+  const withNotifyCheck = async (
+    old: Booking | null,
+    newData: BookingFormData | null,
+    kind: "create" | "update" | "cancel",
+    proceed: () => Promise<void>,
+  ) => {
+    const bookingForCheck = newData ?? (old as BookingFormData);
+    const { should, changes } = shouldNotify(old, newData, kind);
+    const house = should ? houseFor(bookingForCheck.property_id) : undefined;
+    if (house?.notifyEmail) {
+      setNotifyError("");
+      setNotifyPrompt({ booking: bookingForCheck, changes, kind, house, proceed });
+      return;
+    }
+    await proceed();
+  };
+
+  const handleNotifyConfirm = async () => {
+    if (!notifyPrompt) return;
+    setNotifyError("");
+    try {
+      await sendChangeNotification(notifyPrompt.booking, notifyPrompt.house, notifyPrompt.changes, notifyPrompt.kind);
+    } catch (e) {
+      setNotifyError(`Mail konnte nicht gesendet werden: ${(e as Error).message}`);
+      return;
+    }
+    const proceed = notifyPrompt.proceed;
+    setNotifyPrompt(null);
+    await proceed();
+  };
+
+  const handleNotifySkip = async () => {
+    if (!notifyPrompt) return;
+    const proceed = notifyPrompt.proceed;
+    setNotifyPrompt(null);
+    setNotifyError("");
+    await proceed();
+  };
+
   // Legt die Buchung an bzw. öffnet den Änderungs-Diff — nach bestandener Kollisionsprüfung.
   const proceedSave = async (dataToSave: BookingFormData) => {
     if (!current) {
       // Neue Buchung: direkt anlegen (kein Diff)
-      try {
-        await create.mutateAsync(dataToSave);
-        if (dataToSave.email) {
-          await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent });
-          qc.invalidateQueries({ queryKey: ["guests"] });
-        }
-        onClose();
-      } catch (e) { setError((e as Error).message); }
+      const actuallyCreate = async () => {
+        try {
+          await create.mutateAsync(dataToSave);
+          if (dataToSave.email) {
+            await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent });
+            qc.invalidateQueries({ queryKey: ["guests"] });
+          }
+          onClose();
+        } catch (e) { setError((e as Error).message); }
+      };
+      await withNotifyCheck(null, dataToSave, "create", actuallyCreate);
       return;
     }
 
@@ -858,27 +924,33 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   // Bestätigtes Speichern aus dem Diff-Dialog
   const confirmSave = async () => {
     if (!current || !pendingSave) return;
-    try {
-      await update.mutateAsync({ id: current.id, data: pendingSave.data, history: { changes: pendingSave.changes } });
-      if (pendingSave.data.email) {
-        await upsertGuestFields(pendingSave.data.email, { personNotes, marketingConsent });
-        qc.invalidateQueries({ queryKey: ["guests"] });
+    const { data, changes } = pendingSave;
+    setShowSaveDiff(false);
+    const actuallyUpdate = async () => {
+      try {
+        await update.mutateAsync({ id: current.id, data, history: { changes } });
+        if (data.email) {
+          await upsertGuestFields(data.email, { personNotes, marketingConsent });
+          qc.invalidateQueries({ queryKey: ["guests"] });
+        }
+        setCurrent({ ...current, ...data });
+        setForm(data);
+        setPendingSave(null);
+        setMode("view");
+      } catch (e) {
+        setError((e as Error).message);
       }
-      setCurrent({ ...current, ...pendingSave.data });
-      setForm(pendingSave.data);
-      setShowSaveDiff(false);
-      setPendingSave(null);
-      setMode("view");
-    } catch (e) {
-      setError((e as Error).message);
-      setShowSaveDiff(false);
-    }
+    };
+    await withNotifyCheck(current, data, "update", actuallyUpdate);
   };
 
   const handleDelete = async () => {
     if (!current || !window.confirm("Buchung in den Papierkorb verschieben? Du kannst sie dort wiederherstellen.")) return;
-    await del.mutateAsync(current.id);
-    onClose();
+    const actuallyDelete = async () => {
+      await del.mutateAsync(current.id);
+      onClose();
+    };
+    await withNotifyCheck(current, null, "cancel", actuallyDelete);
   };
 
   const confirmRestore = async () => {
@@ -937,12 +1009,14 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
           <div className="flex items-center gap-2 flex-shrink-0">
             {mode === "view" && current ? (
               <>
-                <button
-                  onClick={() => { setForm(formOf(current)); setMode("edit"); setError(""); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition"
-                >
-                  <Pencil className="w-4 h-4" /> Bearbeiten
-                </button>
+                {!isViewer && (
+                  <button
+                    onClick={() => { setForm(formOf(current)); setMode("edit"); setError(""); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition"
+                  >
+                    <Pencil className="w-4 h-4" /> Bearbeiten
+                  </button>
+                )}
                 <button
                   onClick={() => setShowHistory(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition"
@@ -1428,7 +1502,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
         </div>
 
         {/* Footer (nur im Bearbeiten-Modus: Löschen) */}
-        {mode === "edit" && current && (
+        {mode === "edit" && current && !isViewer && (
           <div className="flex items-center px-6 py-4 border-t border-gray-200">
             <button
               onClick={handleDelete}
@@ -1538,6 +1612,18 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
           </div>
         )}
       </div>
+
+      {notifyPrompt && (
+        <NotifyDialog
+          open
+          fromEmail={notifyPrompt.house.contactEmail}
+          toEmail={notifyPrompt.house.notifyEmail}
+          summary={`${properties.find((p) => p.id === notifyPrompt.booking.property_id)?.name ?? notifyPrompt.booking.property_id} · ${notifyPrompt.booking.guest_name || "–"} · ${notifyPrompt.booking.check_in} – ${notifyPrompt.booking.check_out}`}
+          error={notifyError}
+          onConfirm={handleNotifyConfirm}
+          onSkip={handleNotifySkip}
+        />
+      )}
     </div>
   );
 }

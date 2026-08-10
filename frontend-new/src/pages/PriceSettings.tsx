@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Plus, Trash2, Save, Download } from "lucide-react";
 import { usePriceSettings, useUpdatePriceGroup, useSeedPriceSettings } from "@/hooks/usePriceSettings";
+import { useUserRole } from "@/hooks/useUserRole";
 import { PRICE_GROUP_LABELS, PRICE_GROUP_ORDER } from "@/lib/priceGroups";
 import { PRICE_SEED_DATA } from "@/lib/priceSeedData";
 import type { PriceGroupSettings, PriceGroupId, PriceSeason, PriceYear } from "@/types";
@@ -12,6 +13,7 @@ function emptyGroup(id: PriceGroupId): PriceGroupSettings {
 }
 
 export function PriceSettings() {
+  const { isViewer } = useUserRole();
   const { data: groups = [], isLoading } = usePriceSettings();
   const update = useUpdatePriceGroup();
   const seed = useSeedPriceSettings();
@@ -85,7 +87,13 @@ export function PriceSettings() {
 
       <div className="flex-1 overflow-y-auto p-6 max-w-4xl space-y-5">
 
-      {groups.length === 0 && (
+      {isViewer && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Nur Ansicht — du kannst diese Einstellungen nicht bearbeiten.
+        </p>
+      )}
+
+      {groups.length === 0 && !isViewer && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between">
           <p className="text-sm text-amber-800">Noch keine Preise hinterlegt.</p>
           <button
@@ -121,13 +129,16 @@ export function PriceSettings() {
             {y.year}
           </button>
         ))}
-        <button onClick={addYear} className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-          <Plus className="w-3.5 h-3.5" /> Jahr hinzufügen
-        </button>
+        {!isViewer && (
+          <button onClick={addYear} className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+            <Plus className="w-3.5 h-3.5" /> Jahr hinzufügen
+          </button>
+        )}
       </div>
 
       {!year && <p className="text-sm text-gray-400">Noch kein Jahr angelegt.</p>}
 
+      <fieldset disabled={isViewer} className="space-y-5 border-0 m-0 min-w-0 p-0">
       {year && (
         <div className="space-y-3">
           {year.seasons.map((season, si) => (
@@ -236,14 +247,17 @@ export function PriceSettings() {
           + Zusatzgebühr
         </button>
       </div>
+      </fieldset>
 
-      <button
-        onClick={handleSave}
-        disabled={update.isPending}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition disabled:opacity-50"
-      >
-        <Save className="w-4 h-4" /> {update.isPending ? "Speichert…" : saved ? "Gespeichert ✓" : "Speichern"}
-      </button>
+      {!isViewer && (
+        <button
+          onClick={handleSave}
+          disabled={update.isPending}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition disabled:opacity-50"
+        >
+          <Save className="w-4 h-4" /> {update.isPending ? "Speichert…" : saved ? "Gespeichert ✓" : "Speichern"}
+        </button>
+      )}
       </div>
     </div>
   );

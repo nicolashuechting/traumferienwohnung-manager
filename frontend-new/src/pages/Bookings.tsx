@@ -7,6 +7,7 @@ import {
 import { useBookings } from "@/hooks/useBookings";
 import { useIcalFeeds, useSyncIcalFeeds } from "@/hooks/useIcalFeeds";
 import { useGuests } from "@/hooks/useGuests";
+import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
@@ -183,6 +184,7 @@ function channelColor(ch: string) {
 }
 
 export function Bookings() {
+  const { isViewer } = useUserRole();
   const { data: bookings = [], isLoading } = useBookings();
   const { data: guests = [] } = useGuests();
   const consentEmails = useMemo(
@@ -311,7 +313,7 @@ export function Bookings() {
                 {syncMsg}
               </span>
             )}
-            {feeds.length > 0 && (
+            {feeds.length > 0 && !isViewer && (
               <button
                 onClick={handleSync}
                 disabled={syncFeeds.isPending}
@@ -321,10 +323,12 @@ export function Bookings() {
                 {syncFeeds.isPending ? "Sync…" : "Sync"}
               </button>
             )}
-            <button onClick={openNew}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
-              <Plus className="w-4 h-4" /> Neue Buchung
-            </button>
+            {!isViewer && (
+              <button onClick={openNew}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+                <Plus className="w-4 h-4" /> Neue Buchung
+              </button>
+            )}
           </div>
         </div>
 

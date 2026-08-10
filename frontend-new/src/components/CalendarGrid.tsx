@@ -7,10 +7,15 @@ import {
 import { properties } from "@/lib/properties";
 import { statusConfig, CONFIRMED_STATUSES } from "@/lib/bookingStatus";
 import { useUpdateBooking } from "@/hooks/useBookings";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { shiftDates, resizeStart, resizeEnd, hasCollision, spansOverlap } from "@/lib/bookingDrag";
 import { arrivalFraction, departureFraction } from "@/lib/daySegments";
 import { diffBooking } from "@/lib/bookingHistory";
-import type { Booking } from "@/types";
+import { shouldNotify } from "@/lib/bookingNotify";
+import { sendChangeNotification } from "@/lib/notifyEmail";
+import { NotifyDialog } from "@/components/NotifyDialog";
+import type { Booking, BookingFormData, FieldChange, HouseId, HouseSettings } from "@/types";
 
 type DragMode = "move" | "resize-start" | "resize-end";
 const HANDLE_W = 10; // Greifbreite der Resize-Ränder
@@ -214,12 +219,28 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
   const isMouseDown = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const { isViewer } = useUserRole();
+  const { data: houseSettings = [] } = useHouseSettings();
+
   // ── Drag & Drop: verschieben / verlängern / verkürzen / Wohnung wechseln ──
   const update = useUpdateBooking();
   const [drag, setDrag] = useState<
     { id: string; mode: DragMode; check_in: string; check_out: string; collision: boolean; targetProperty: string } | null
   >(null);
   const [dragError, setDragError] = useState("");
+  const [notifyPrompt, setNotifyPrompt] = useState<{
+    booking: BookingFormData;
+    changes: FieldChange[];
+    house: HouseSettings;
+    proceed: () => void;
+  } | null>(null);
+  const [notifyError, setNotifyError] = useState("");
+
+  const houseFor = useCallback((propertyId: string): HouseSettings | undefined => {
+    const prop = properties.find((p) => p.id === propertyId);
+    const houseId: HouseId = prop?.house === "Haus Anne" ? "haus-anne" : "upstalsboom";
+    return houseSettings.find((h) => h.id === houseId);
+  }, [houseSettings]);
   const justDragged = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -266,6 +287,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
     const mode = (e.active.data.current?.mode as DragMode) ?? "move";
     setDrag(null);
     setTimeout(() => { justDragged.current = false; }, 50);
+    if (isViewer) return;
     if (!b) return;
     const dd = Math.round(e.delta.x / DAY_W);
     const { check_in, check_out } = computeDates(b, mode, dd);
@@ -282,11 +304,41 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
     if (CONFIRMED_STATUSES.includes(b.status) &&
         !window.confirm("Diese Buchung wurde bereits bestätigt. Wirklich ändern?")) return;
     const newData = { check_in, check_out, property_id: targetProperty };
-    update.mutate(
-      { id: b.id, data: newData, history: { changes: diffBooking(b, newData) } },
-      { onError: () => setDragError("Speichern fehlgeschlagen – bitte erneut versuchen.") },
-    );
-  }, [bookings, computeDates, targetPropertyOf, update]);
+    const doUpdate = () => {
+      update.mutate(
+        { id: b.id, data: newData, history: { changes: diffBooking(b, newData) } },
+        { onError: () => setDragError("Speichern fehlgeschlagen – bitte erneut versuchen.") },
+      );
+    };
+    const { should, changes } = shouldNotify(b, newData, "update");
+    const house = should ? houseFor(newData.property_id) : undefined;
+    if (house?.notifyEmail) {
+      setNotifyError("");
+      setNotifyPrompt({ booking: { ...b, ...newData }, changes, house, proceed: doUpdate });
+    } else {
+      doUpdate();
+    }
+  }, [bookings, computeDates, targetPropertyOf, update, isViewer, houseFor]);
+
+  const handleNotifyConfirm = useCallback(async () => {
+    if (!notifyPrompt) return;
+    setNotifyError("");
+    try {
+      await sendChangeNotification(notifyPrompt.booking, notifyPrompt.house, notifyPrompt.changes, "update");
+    } catch (e) {
+      setNotifyError(`Mail konnte nicht gesendet werden: ${(e as Error).message}`);
+      return;
+    }
+    notifyPrompt.proceed();
+    setNotifyPrompt(null);
+  }, [notifyPrompt]);
+
+  const handleNotifySkip = useCallback(() => {
+    if (!notifyPrompt) return;
+    notifyPrompt.proceed();
+    setNotifyPrompt(null);
+    setNotifyError("");
+  }, [notifyPrompt]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -366,11 +418,11 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
   }, []);
 
   const handleRowMouseDown = useCallback((propertyId: string, e: React.MouseEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || isViewer) return;
     e.preventDefault();
     isMouseDown.current = true;
     setSelection({ propertyId, start: getDayIndex(e.clientX), end: getDayIndex(e.clientX) });
-  }, [getDayIndex]);
+  }, [getDayIndex, isViewer]);
 
   const handleRowMouseMove = useCallback((propertyId: string, e: React.MouseEvent) => {
     if (!isMouseDown.current) return;
@@ -430,8 +482,9 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
   }, [visStart, visEnd]);
 
   return (
+    <>
     <DndContext
-      sensors={sensors}
+      sensors={isViewer ? [] : sensors}
       modifiers={[snapXToDay]}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
@@ -652,5 +705,17 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
       </div>
     </div>
     </DndContext>
+    {notifyPrompt && (
+      <NotifyDialog
+        open
+        fromEmail={notifyPrompt.house.contactEmail}
+        toEmail={notifyPrompt.house.notifyEmail}
+        summary={`${properties.find((p) => p.id === notifyPrompt.booking.property_id)?.name ?? notifyPrompt.booking.property_id} · ${notifyPrompt.booking.guest_name || "–"} · ${notifyPrompt.booking.check_in} – ${notifyPrompt.booking.check_out}`}
+        error={notifyError}
+        onConfirm={handleNotifyConfirm}
+        onSkip={handleNotifySkip}
+      />
+    )}
+    </>
   );
 });

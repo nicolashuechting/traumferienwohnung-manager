@@ -6,10 +6,16 @@ import {
 // DragOverlay entfernt — Live-Vorschau erfolgt direkt im Raster über previewDates-State
 import { statusConfig, CONFIRMED_STATUSES } from "@/lib/bookingStatus";
 import { useUpdateBooking } from "@/hooks/useBookings";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { shiftDates, setStartDate, setEndDate, hasCollision, spansOverlap, daysDiffISO } from "@/lib/bookingDrag";
 import { arrivalFraction, departureFraction } from "@/lib/daySegments";
 import { diffBooking } from "@/lib/bookingHistory";
-import type { Booking } from "@/types";
+import { shouldNotify } from "@/lib/bookingNotify";
+import { sendChangeNotification } from "@/lib/notifyEmail";
+import { NotifyDialog } from "@/components/NotifyDialog";
+import { properties } from "@/lib/properties";
+import type { Booking, BookingFormData, FieldChange, HouseId, HouseSettings } from "@/types";
 
 type MonthDragMode = "move" | "resize-start" | "resize-end";
 const HANDLE_W = 10;
@@ -300,8 +306,24 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
   const isDragging = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const { isViewer } = useUserRole();
+  const { data: houseSettings = [] } = useHouseSettings();
+
   // ── Drag & Drop ──
   const update = useUpdateBooking();
+  const [notifyPrompt, setNotifyPrompt] = useState<{
+    booking: BookingFormData;
+    changes: FieldChange[];
+    house: HouseSettings;
+    proceed: () => void;
+  } | null>(null);
+  const [notifyError, setNotifyError] = useState("");
+
+  const houseFor = useCallback((propId: string): HouseSettings | undefined => {
+    const prop = properties.find((p) => p.id === propId);
+    const houseId: HouseId = prop?.house === "Haus Anne" ? "haus-anne" : "upstalsboom";
+    return houseSettings.find((h) => h.id === houseId);
+  }, [houseSettings]);
   // Snapshot der aktiven Buchung beim Drag-Start (unveränderlich während des Drags)
   const [activeBookingSnapshot, setActiveBookingSnapshot] = useState<Booking | null>(null);
   // Vorschau-Daten: neue check_in/check_out und Kollisionsstatus während des Drags
@@ -354,6 +376,7 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
     setActiveBookingSnapshot(null);
     setPreviewDates(null);
     setTimeout(() => { justDragged.current = false; }, 50);
+    if (isViewer) return;
     if (!b || !p) return;
     const iso = dateUnderPoint(p.x, p.y);
     if (!iso) return;
@@ -364,11 +387,41 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
     if (CONFIRMED_STATUSES.includes(b.status) &&
         !window.confirm("Diese Buchung wurde bereits bestätigt. Wirklich ändern?")) return;
     const newData = { check_in, check_out };
-    update.mutate(
-      { id: b.id, data: newData, history: { changes: diffBooking(b, newData) } },
-      { onError: () => setMoveError("Speichern fehlgeschlagen – bitte erneut versuchen.") },
-    );
-  }, [bookings, update]);
+    const doUpdate = () => {
+      update.mutate(
+        { id: b.id, data: newData, history: { changes: diffBooking(b, newData) } },
+        { onError: () => setMoveError("Speichern fehlgeschlagen – bitte erneut versuchen.") },
+      );
+    };
+    const { should, changes } = shouldNotify(b, newData, "update");
+    const house = should ? houseFor(b.property_id) : undefined;
+    if (house?.notifyEmail) {
+      setNotifyError("");
+      setNotifyPrompt({ booking: { ...b, ...newData }, changes, house, proceed: doUpdate });
+    } else {
+      doUpdate();
+    }
+  }, [bookings, update, isViewer, houseFor]);
+
+  const handleNotifyConfirm = useCallback(async () => {
+    if (!notifyPrompt) return;
+    setNotifyError("");
+    try {
+      await sendChangeNotification(notifyPrompt.booking, notifyPrompt.house, notifyPrompt.changes, "update");
+    } catch (e) {
+      setNotifyError(`Mail konnte nicht gesendet werden: ${(e as Error).message}`);
+      return;
+    }
+    notifyPrompt.proceed();
+    setNotifyPrompt(null);
+  }, [notifyPrompt]);
+
+  const handleNotifySkip = useCallback(() => {
+    if (!notifyPrompt) return;
+    notifyPrompt.proceed();
+    setNotifyPrompt(null);
+    setNotifyError("");
+  }, [notifyPrompt]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -437,12 +490,12 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
   }, [dragStart, dragEnd]);
 
   const handleDayMouseDown = useCallback((d: Date, e: React.MouseEvent) => {
-    if (activeBookingSnapshot) return; // kein Datumsbereich-Select während Buchungs-Drag
+    if (activeBookingSnapshot || isViewer) return; // kein Datumsbereich-Select während Buchungs-Drag
     e.preventDefault();
     isDragging.current = true;
     setDragStart(d);
     setDragEnd(d);
-  }, [activeBookingSnapshot]);
+  }, [activeBookingSnapshot, isViewer]);
 
   const handleDayMouseEnter = useCallback((d: Date) => {
     if (isDragging.current) setDragEnd(d);
@@ -465,8 +518,9 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
   const isAnyDragActive = activeBookingSnapshot !== null;
 
   return (
+    <>
     <DndContext
-      sensors={sensors}
+      sensors={isViewer ? [] : sensors}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
@@ -695,5 +749,17 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
       </div>
     </div>
     </DndContext>
+    {notifyPrompt && (
+      <NotifyDialog
+        open
+        fromEmail={notifyPrompt.house.contactEmail}
+        toEmail={notifyPrompt.house.notifyEmail}
+        summary={`${properties.find((p) => p.id === notifyPrompt.booking.property_id)?.name ?? notifyPrompt.booking.property_id} · ${notifyPrompt.booking.guest_name || "–"} · ${notifyPrompt.booking.check_in} – ${notifyPrompt.booking.check_out}`}
+        error={notifyError}
+        onConfirm={handleNotifyConfirm}
+        onSkip={handleNotifySkip}
+      />
+    )}
+    </>
   );
 });

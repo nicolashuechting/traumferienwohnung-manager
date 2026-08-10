@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Star, Mail, Phone, Search, X, ChevronDown, ChevronUp, Calendar, Moon, Home, Hash, Trash2, Pencil } from "lucide-react";
 import { useBookings, useSoftDeleteBooking } from "@/hooks/useBookings";
 import { useGuests } from "@/hooks/useGuests";
+import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { GuestEditModal } from "@/components/GuestEditModal";
 import { properties } from "@/lib/properties";
@@ -99,6 +100,7 @@ function BookingRow({ b, onOpen }: { b: Booking; onOpen: (b: Booking) => void })
 // ── Gast-Karte ────────────────────────────────────────────────────────────────
 function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking: (b: Booking) => void; onEdit: (g: GuestRecord) => void }) {
   const [open, setOpen] = useState(false);
+  const { isViewer } = useUserRole();
   const softDelete = useSoftDeleteBooking();
   const sorted = [...g.bookingList].sort((a, b) => b.check_in.localeCompare(a.check_in));
   const isReturning = g.totalBookings >= 2;
@@ -183,20 +185,24 @@ function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking
               <p className="text-2xl font-bold text-blue-600">{g.totalBookings}</p>
               <p className="text-xs text-gray-500">Buchung{g.totalBookings !== 1 ? "en" : ""}</p>
             </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(g); }}
-              title="Gast bearbeiten"
-              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleDeleteGuest}
-              title="Alle Buchungen dieses Gasts in den Papierkorb verschieben"
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {!isViewer && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(g); }}
+                title="Gast bearbeiten"
+                className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
+            {!isViewer && (
+              <button
+                onClick={handleDeleteGuest}
+                title="Alle Buchungen dieses Gasts in den Papierkorb verschieben"
+                className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
             {open
               ? <ChevronUp className="w-4 h-4 text-gray-400" />
               : <ChevronDown className="w-4 h-4 text-gray-400" />}

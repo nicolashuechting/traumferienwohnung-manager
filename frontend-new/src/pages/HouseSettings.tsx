@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Save } from "lucide-react";
 import { useHouseSettings, useUpdateHouseSettings } from "@/hooks/useHouseSettings";
+import { useUserRole } from "@/hooks/useUserRole";
 import type { HouseId, HouseSettings } from "@/types";
 
 const inputCls = "w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
@@ -18,6 +19,7 @@ function emptyHouse(id: HouseId): HouseSettings {
     iban: "",
     bank: "",
     contactEmail: "",
+    notifyEmail: "",
     phone: "",
     website: "",
     footerName: "",
@@ -33,6 +35,7 @@ function emptyHouse(id: HouseId): HouseSettings {
 }
 
 export function HouseSettingsPage() {
+  const { isViewer } = useUserRole();
   const { data: houses = [], isLoading } = useHouseSettings();
   const update = useUpdateHouseSettings();
 
@@ -82,7 +85,13 @@ export function HouseSettingsPage() {
           ))}
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+        {isViewer && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Nur Ansicht — du kannst diese Einstellungen nicht bearbeiten.
+          </p>
+        )}
+
+        <fieldset disabled={isViewer} className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 m-0 min-w-0">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Anzeigename</label>
@@ -108,6 +117,13 @@ export function HouseSettingsPage() {
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Website</label>
             <input className={inputCls} value={draft.website} onChange={(e) => set("website", e.target.value)} placeholder="https://www.hausannebaltrum.de" />
+          </div>
+
+          <div className="border-t border-gray-100 pt-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Benachrichtigungs-E-Mail (Änderungen/Stornierungen kurzfristiger Buchungen)
+            </label>
+            <input className={inputCls} value={draft.notifyEmail} onChange={(e) => set("notifyEmail", e.target.value)} placeholder="ewelina@beispiel.de" />
           </div>
 
           <div className="border-t border-gray-100 pt-4">
@@ -161,8 +177,9 @@ export function HouseSettingsPage() {
               onChange={(e) => set("stornoText", e.target.value.split("\n"))}
             />
           </div>
-        </div>
+        </fieldset>
 
+        {!isViewer && (
         <div className="flex items-center gap-3">
           <button
             onClick={handleSave}
@@ -173,6 +190,7 @@ export function HouseSettingsPage() {
           </button>
           {saved && <span className="text-sm text-emerald-600 font-medium">Gespeichert ✓</span>}
         </div>
+        )}
       </div>
     </div>
   );

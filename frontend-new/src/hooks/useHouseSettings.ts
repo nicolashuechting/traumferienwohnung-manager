@@ -19,6 +19,7 @@ async function fetchHouseSettings(): Promise<HouseSettings[]> {
       iban: String(raw.iban ?? ""),
       bank: String(raw.bank ?? ""),
       contactEmail: String(raw.contactEmail ?? ""),
+      notifyEmail: String(raw.notifyEmail ?? ""),
       phone: String(raw.phone ?? ""),
       website: String(raw.website ?? ""),
       footerName: String(raw.footerName ?? ""),

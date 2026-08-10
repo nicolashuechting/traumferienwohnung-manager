@@ -1,5 +1,6 @@
 import { Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 import { useTrashedBookings, useRestoreBooking, useHardDeleteBooking } from "@/hooks/useBookings";
+import { useUserRole } from "@/hooks/useUserRole";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
 import type { Booking } from "@/types";
@@ -25,6 +26,7 @@ function TrashRow({
   onHardDelete: (b: Booking) => void;
   busy: boolean;
 }) {
+  const { isViewer } = useUserRole();
   return (
     <div className="flex items-center gap-4 p-4 border-b border-gray-100 last:border-0 flex-wrap">
       <div className="flex-1 min-w-[200px]">
@@ -45,22 +47,24 @@ function TrashRow({
         </p>
       </div>
 
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <button
-          disabled={busy}
-          onClick={() => onRestore(b)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition disabled:opacity-50"
-        >
-          <RotateCcw className="w-4 h-4" /> Wiederherstellen
-        </button>
-        <button
-          disabled={busy}
-          onClick={() => onHardDelete(b)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 transition disabled:opacity-50"
-        >
-          <Trash2 className="w-4 h-4" /> Endgültig löschen
-        </button>
-      </div>
+      {!isViewer && (
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            disabled={busy}
+            onClick={() => onRestore(b)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition disabled:opacity-50"
+          >
+            <RotateCcw className="w-4 h-4" /> Wiederherstellen
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => onHardDelete(b)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 transition disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" /> Endgültig löschen
+          </button>
+        </div>
+      )}
     </div>
   );
 }

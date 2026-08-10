@@ -19,6 +19,7 @@ export interface HouseSettings {
   iban: string;
   bank: string;
   contactEmail: string;
+  notifyEmail: string;       // Empfänger für Änderungs-/Stornierungs-Benachrichtigungen (Vermieterin etc.)
   phone: string;
   website: string;
   footerName: string;        // z.B. "Familien Rothengaß und Hüchting"
@@ -160,9 +161,12 @@ export interface BookingHistoryEntry {
 // Ein Dokument pro erlaubtem Nutzer (Collection "allowedUsers", ID = normalisierte
 // E-Mail). Wird u.a. genutzt, um in der Buchungshistorie einen lesbaren Namen
 // statt der rohen Firebase-Auth-UID anzuzeigen.
+export type UserRole = "admin" | "viewer";
+
 export interface AllowedUser {
   email: string;
   displayName: string;
+  role: UserRole; // fehlt in Firestore bei Altbestand → wird als "admin" behandelt (siehe useAllowedUsers)
 }
 
 // iCal feed stored in Firestore
