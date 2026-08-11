@@ -261,7 +261,10 @@ export function Bookings() {
       let av: string | number = a[sort.key] ?? "";
       let bv: string | number = b[sort.key] ?? "";
       if (sort.key === "property_id") { av = propName(a.property_id); bv = propName(b.property_id); }
-      if (sort.key === "price") { av = a.price ?? 0; bv = b.price ?? 0; }
+      if (sort.key === "price") {
+        av = a.status === "storniert" ? (a.cancellationFee ?? 0) : (a.price ?? 0);
+        bv = b.status === "storniert" ? (b.cancellationFee ?? 0) : (b.price ?? 0);
+      }
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return sort.dir === "asc" ? cmp : -cmp;
     });
@@ -551,7 +554,9 @@ export function Bookings() {
                       </td>
                       <td className="px-3 py-3 text-center text-gray-700">{b.dogCount > 0 ? b.dogCount : "–"}</td>
                       <td className="px-3 py-3 text-gray-800 whitespace-nowrap text-right font-medium">
-                        {b.price > 0 ? `${b.price.toLocaleString("de-DE")} €` : "–"}
+                        {b.status === "storniert"
+                          ? `${b.cancellationFee.toLocaleString("de-DE")} € (Kulanz)`
+                          : b.price > 0 ? `${b.price.toLocaleString("de-DE")} €` : "–"}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={b.status} /></td>
                       <td className="px-3 py-3 text-center"><Checkbox checked={b.is_paid} /></td>

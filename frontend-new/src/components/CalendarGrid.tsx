@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from "react";
-import { Dog } from "lucide-react";
+import { Dog, Ban, CheckCircle2 } from "lucide-react";
 import {
   DndContext, PointerSensor, useSensor, useSensors, useDraggable,
   type DragStartEvent, type DragMoveEvent, type DragEndEvent, type Modifier,
@@ -62,18 +62,26 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
     id: booking.id,
     data: { booking, mode: "move" as DragMode },
   });
+  const isCancelled = booking.status === "storniert";
 
   const style: React.CSSProperties = {
     position: "absolute",
     left, width: Math.max(4, width), top, height,
     backgroundColor: statusConfig(booking.status).barColor,
+    // Diagonales Streifenmuster statt Grundfarbe/Deckkraft — bleibt auch bei
+    // ähnlicher Grundfarbe (z.B. neben "Anfrage") klar als "storniert" erkennbar.
+    backgroundImage: isCancelled
+      ? "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0px, rgba(255,255,255,0.55) 3px, transparent 3px, transparent 6px)"
+      : undefined,
     // Beim Verschieben (Mitte) folgt der Balken dem dnd-Transform (X = Datum, Y = Wohnung).
     // Beim Resize bewegt sich der Griff – der Balken wird über left/width neu gesetzt.
     transform: transform ? `translate3d(${transform.x}px,${transform.y}px,0)` : undefined,
     boxShadow: isActiveDrag
       ? `0 0 0 2px ${dragCollision ? "#dc2626" : "#16a34a"}, 0 6px 14px rgba(0,0,0,0.3)`
       : isConflict ? `0 0 0 2px ${BOOKING_OVERLAP_COLOR}` : "0 1px 3px rgba(0,0,0,0.18)",
-    zIndex: isActiveDrag ? 40 : isConflict ? 2 : 1,
+    // Stornierter Streifen liegt bewusst über normalen Balken (unabhängig von der
+    // zufälligen Array-Reihenfolge), damit er nie unter einer aktiven Buchung verschwindet.
+    zIndex: isActiveDrag ? 40 : isCancelled ? 3 : isConflict ? 2 : 1,
     opacity: isActiveDrag ? 0.95 : 1,
     cursor: isDragging ? "grabbing" : "grab",
     touchAction: "none",
@@ -88,17 +96,29 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
       {...listeners}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => { e.stopPropagation(); onClickBar(booking); }}
-      className="flex items-center gap-1 px-1.5 text-white text-[11px] font-semibold rounded overflow-hidden"
+      className={isCancelled
+        ? "flex items-center justify-center gap-1 text-white rounded-sm overflow-hidden"
+        : "flex items-center gap-1 px-1.5 text-white text-[11px] font-semibold rounded overflow-hidden"}
       style={style}
       title={`${booking.guest_name}${booking.booking_number ? ` | ${booking.booking_number}` : ""} | ${booking.check_in} – ${booking.check_out}`
         + (booking.ferry_time ? `\nAnreise mit Fähre ${booking.ferry_time} Uhr` : "")
         + (booking.ferry_time_departure ? `\nAbreise mit Fähre ${booking.ferry_time_departure} Uhr` : "")
-        + (isConflict ? "\n⚠ Überschneidung" : "")}
+        + (isConflict ? "\n⚠ Überschneidung" : "")
+        + (isCancelled ? `\nStorniert${booking.is_paid ? " – Kulanzbetrag bezahlt" : booking.cancellationFee ? " – Kulanzbetrag offen" : ""}` : "")}
     >
-      {isConflict && <span className="flex-shrink-0 text-[10px]">⚠</span>}
-      <span className="truncate min-w-0">{booking.guest_name}</span>
-      {!booking.is_paid && (
-        <span className="flex-shrink-0 bg-black/20 rounded px-1 text-[9px] font-normal ml-auto">€?</span>
+      {isCancelled ? (
+        <>
+          <Ban className="w-3 h-3 flex-shrink-0" />
+          {booking.is_paid && <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />}
+        </>
+      ) : (
+        <>
+          {isConflict && <span className="flex-shrink-0 text-[10px]">⚠</span>}
+          <span className="truncate min-w-0">{booking.guest_name}</span>
+          {!booking.is_paid && (
+            <span className="flex-shrink-0 bg-black/20 rounded px-1 text-[9px] font-normal ml-auto">€?</span>
+          )}
+        </>
       )}
     </button>
   );
@@ -144,6 +164,13 @@ const BUFFER = 30;
 
 // Buchungsfarbe richtet sich nach dem Status (siehe lib/bookingStatus)
 const BOOKING_OVERLAP_COLOR = "#dc2626"; // Rot-Rahmen für echte Doppelbuchungen
+const CANCELLED_BAR_H = 15; // dünner Streifen für stornierte Buchungen, unabhängig von Lanes — Platz für Ban- + Bezahlt-Icon
+
+// Stornierte Buchungen zählen nie als Überschneidung — weder für die Lane-Zuteilung
+// noch für die Rot-Rahmen-Warnung: der Zeitraum ist wieder frei belegbar.
+function noOverlap(a: Booking, b: Booking): boolean {
+  return a.status === "storniert" || b.status === "storniert" || !spansOverlap(a, b);
+}
 
 // Pixel-Versatz für ein Tages-Segment (0..4) bei gegebener Spaltenbreite.
 function segmentOffsetPx(fraction: number): number {
@@ -278,7 +305,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
     const targetProperty = targetPropertyOf(e, b, mode);
     setDrag({
       id: b.id, mode, check_in, check_out, targetProperty,
-      collision: hasCollision(bookings, targetProperty, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure),
+      collision: hasCollision(bookings, targetProperty, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure, b.status),
     });
   }, [bookings, computeDates, targetPropertyOf]);
 
@@ -295,7 +322,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
     const datesChanged = check_in !== b.check_in || check_out !== b.check_out;
     const propChanged  = targetProperty !== b.property_id;
     if (!datesChanged && !propChanged) return;
-    if (hasCollision(bookings, targetProperty, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure) &&
+    if (hasCollision(bookings, targetProperty, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure, b.status) &&
         !window.confirm(
           propChanged
             ? `In „${propName(targetProperty)}" überschneidet sich die Buchung mit einer anderen. Trotzdem dorthin verschieben?`
@@ -390,7 +417,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
       const sorted = [...list].sort((a, b) => a.startIdx - b.startIdx);
       const laneOccupant: Array<Booking | null> = [];
       const withLane = sorted.map((item) => {
-        let lane = laneOccupant.findIndex((occ) => !occ || !spansOverlap(occ, item.booking));
+        let lane = laneOccupant.findIndex((occ) => !occ || noOverlap(occ, item.booking));
         if (lane === -1) { lane = laneOccupant.length; laneOccupant.push(null); }
         laneOccupant[lane] = item.booking;
         return { ...item, lane };
@@ -399,7 +426,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
       // → Buchungen ohne Überschneidung bekommen localLanes=1 (volle Höhe)
       const withLocal = withLane.map((item) => {
         const overlapping = withLane.filter(
-          (other) => other !== item && spansOverlap(item.booking, other.booking)
+          (other) => other !== item && !noOverlap(item.booking, other.booking)
         );
         const localLanes = overlapping.length === 0
           ? 1
@@ -646,11 +673,15 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
                         const baseLeft  = startIdx * DAY_W + startOffset + 1;
                         const baseWidth = span * DAY_W + endOffset - startOffset - 2;
 
-                        // Volle Höhe wenn keine Überschneidung, sonst aufgeteilt
+                        // Volle Höhe wenn keine Überschneidung, sonst aufgeteilt. Stornierte
+                        // Buchungen bekommen unabhängig davon immer einen dünnen Streifen am
+                        // unteren Zeilenrand — erzwingen nie eine eigene Lane und verschwinden
+                        // nie hinter einer neuen Buchung im selben Zeitraum.
                         const rowPad    = 4;
                         const laneH     = Math.floor((ROW_H - rowPad * 2) / localLanes);
-                        const barTop    = rowPad + lane * laneH + 1;
-                        const barHeight = laneH - 2;
+                        const isCancelled = booking.status === "storniert";
+                        const barTop    = isCancelled ? ROW_H - rowPad - CANCELLED_BAR_H : rowPad + lane * laneH + 1;
+                        const barHeight = isCancelled ? CANCELLED_BAR_H : laneH - 2;
 
                         const isConflict = localLanes > 1 && lane > 0; // echte Doppelbuchung
                         const isActiveDrag = drag?.id === booking.id;

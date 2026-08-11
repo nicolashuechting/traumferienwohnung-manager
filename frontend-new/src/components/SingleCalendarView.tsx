@@ -68,6 +68,13 @@ const BUFFER_MONTHS = 2;
 
 const BOOKING_OVERLAP_COLOR = "#dc2626";
 const BAR_H = 26;
+const CANCELLED_BAR_H = 6; // dünner Streifen für stornierte Buchungen, unterhalb des normalen Balkens
+
+// Stornierte Buchungen zählen nie als Überschneidung — weder für die Lane-Zuteilung
+// noch für die Rot-Rahmen-Warnung: der Zeitraum ist wieder frei belegbar.
+function noOverlap(a: Booking, b: Booking): boolean {
+  return a.status === "storniert" || b.status === "storniert" || !spansOverlap(a, b);
+}
 
 function segmentOffsetPx(fraction: number): number {
   return Math.round(fraction * CELL_W);
@@ -212,22 +219,49 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
     id: dragId,
     data: { booking: bar.booking, mode: "move" as MonthDragMode },
   });
+  const isCancelled = bar.booking.status === "storniert";
+  // Der Streifen ist zu dünn für ein Icon — bezahlt/offen wird hier stattdessen über
+  // die Grundfarbe signalisiert (Grün = Kulanzbetrag bezahlt, Grau = noch offen),
+  // das diagonale Streifenmuster bleibt in beiden Fällen als "storniert"-Signal.
+  const cancelledColor = bar.booking.is_paid ? "#16a34a" : statusConfig(bar.booking.status).barColor;
   const style: React.CSSProperties = {
     position: "absolute",
     left, width: Math.max(4, width), top, height,
-    backgroundColor: statusConfig(bar.booking.status).barColor,
+    backgroundColor: isCancelled ? cancelledColor : statusConfig(bar.booking.status).barColor,
+    // Diagonales Streifenmuster statt Grundfarbe/Deckkraft — bleibt auch bei
+    // ähnlicher Grundfarbe (z.B. neben "Anfrage") klar als "storniert" erkennbar.
+    backgroundImage: isCancelled
+      ? "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0px, rgba(255,255,255,0.55) 2px, transparent 2px, transparent 4px)"
+      : undefined,
     borderRadius: radius,
     boxShadow: isConflict ? `0 0 0 2px ${BOOKING_OVERLAP_COLOR}` : undefined,
     // Aktivierte Buchung wird auf 30% Opacity gedimmt (wie CalendarGrid 0.4),
     // damit der Vorschau-Balken an der neuen Position gut sichtbar ist.
     opacity: isActiveDrag ? 0.3 : 1,
-    zIndex: isConflict ? 2 : 1,
+    // Stornierter Streifen liegt bewusst über normalen Balken, damit er nie unter
+    // einer aktiven Buchung im selben Zeitraum verschwindet.
+    zIndex: isCancelled ? 3 : isConflict ? 2 : 1,
     cursor: isDragging ? "grabbing" : "grab",
     touchAction: "none",
     // Während eines Drags pointer-events deaktivieren damit dateUnderPoint()
     // die darunterliegenden data-date Zellen erreicht.
     pointerEvents: isAnyDragActive ? "none" : undefined,
   };
+  if (isCancelled) {
+    return (
+      <button
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onClickBar(bar.booking); }}
+        className="overflow-hidden"
+        style={style}
+        title={`${bar.booking.guest_name}${bar.booking.booking_number ? ` | ${bar.booking.booking_number}` : ""} | ${bar.booking.check_in} – ${bar.booking.check_out}`
+          + `\nStorniert${bar.booking.is_paid ? " – Kulanzbetrag bezahlt" : bar.booking.cancellationFee ? " – Kulanzbetrag offen" : ""}`}
+      />
+    );
+  }
   return (
     <button
       ref={setNodeRef}
@@ -365,7 +399,7 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
     setPreviewDates({
       check_in,
       check_out,
-      collision: hasCollision(bookings, b.property_id, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure),
+      collision: hasCollision(bookings, b.property_id, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure, b.status),
     });
   }, [bookings]);
 
@@ -382,7 +416,7 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
     if (!iso) return;
     const { check_in, check_out } = computeMonthDates(b, mode, iso, grabIsoRef.current);
     if (check_in === b.check_in && check_out === b.check_out) return;
-    if (hasCollision(bookings, b.property_id, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure) &&
+    if (hasCollision(bookings, b.property_id, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure, b.status) &&
         !window.confirm("An diesem Zeitraum überschneidet sich die Buchung mit einer anderen. Trotzdem speichern?")) return;
     if (CONFIRMED_STATUSES.includes(b.status) &&
         !window.confirm("Diese Buchung wurde bereits bestätigt. Wirklich ändern?")) return;
@@ -464,14 +498,14 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
 
     const laneOccupant: Array<Booking | null> = [];
     const withLane = filtered.map((item) => {
-      let lane = laneOccupant.findIndex((occ) => !occ || !spansOverlap(occ, item.booking));
+      let lane = laneOccupant.findIndex((occ) => !occ || noOverlap(occ, item.booking));
       if (lane === -1) { lane = laneOccupant.length; laneOccupant.push(null); }
       laneOccupant[lane] = item.booking;
       return { ...item, lane };
     });
 
     return withLane.map((item) => {
-      const overlapping = withLane.filter((o) => o !== item && spansOverlap(item.booking, o.booking));
+      const overlapping = withLane.filter((o) => o !== item && !noOverlap(item.booking, o.booking));
       const localLanes = overlapping.length === 0
         ? 1
         : Math.max(item.lane, ...overlapping.map((o) => o.lane)) + 1;
@@ -645,10 +679,14 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
 
                     {/* Buchungsbalken */}
                     {bars.map((bar, bi) => {
+                      const isCancelled = bar.booking.status === "storniert";
                       const isOverlap = bar.localLanes > 1;
                       const laneH   = Math.floor(BAR_H / bar.localLanes);
-                      const barH    = isOverlap ? laneH - 1 : BAR_H;
-                      const barTop  = ROW_H - BAR_H - 4 + (isOverlap ? bar.lane * laneH : 0);
+                      // Stornierte Buchungen bekommen unabhängig von Lanes immer einen dünnen
+                      // Streifen ganz am unteren Zellenrand — unterhalb des normalen Balkens,
+                      // damit eine neue Buchung im selben Zeitraum nicht verdeckt wird.
+                      const barH    = isCancelled ? CANCELLED_BAR_H : isOverlap ? laneH - 1 : BAR_H;
+                      const barTop  = isCancelled ? ROW_H - CANCELLED_BAR_H : ROW_H - BAR_H - 4 + (isOverlap ? bar.lane * laneH : 0);
 
                       const { startOffset, width: barWidth } = barGeometry(bar);
                       const barLeft = bar.startSlot * CELL_W + startOffset + 1;

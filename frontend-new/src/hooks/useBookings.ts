@@ -28,7 +28,7 @@ async function writeHistory(bookingId: string, changes: FieldChange[], note?: st
   }
 }
 
-const VALID_STATUSES: BookingStatus[] = ["anfrage", "reserviert", "bestaetigt", "bezahlt", "problem", "abgeschlossen"];
+const VALID_STATUSES: BookingStatus[] = ["anfrage", "reserviert", "bestaetigt", "vertrag_unterschrieben", "bezahlt", "problem", "abgeschlossen", "storniert"];
 
 // Status für Altbestand ohne status-Feld ableiten: bezahlt → "bezahlt", sonst "anfrage"
 function resolveStatus(raw: Record<string, unknown>): BookingStatus {
@@ -106,6 +106,7 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
     price:        Number(raw.price   ?? 0),
     priceIsManual: Boolean(raw.priceIsManual ?? true), // Altbestand ohne Feld: als manuell behandeln, nicht automatisch überschreiben
     priceBreakdown: (raw.priceBreakdown ?? undefined) as Booking["priceBreakdown"],
+    cancellationFee: Number(raw.cancellationFee ?? 0),
     channel:      resolveChannel(raw),
     ical_uid:     (raw.ical_uid ?? "") as string,
     notes:        (raw.notes ?? raw.specialRequests ?? "") as string,
@@ -214,8 +215,8 @@ function todayISO(): string {
 }
 
 // Setzt bezahlte Buchungen nach der Abreise automatisch auf "abgeschlossen" — alle
-// anderen Status (anfrage, reserviert, bestaetigt, problem) deuten auf noch offene
-// Punkte hin und müssen bewusst manuell abgeschlossen werden.
+// anderen Status (anfrage, reserviert, bestaetigt, vertrag_unterschrieben, problem)
+// deuten auf noch offene Punkte hin und müssen bewusst manuell abgeschlossen werden.
 export function useAutoCompleteBookings() {
   const { data: bookings } = useBookings();
   const update = useUpdateBooking();

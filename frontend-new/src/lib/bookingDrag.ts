@@ -1,4 +1,4 @@
-import type { Booking } from "@/types";
+import type { Booking, BookingStatus } from "@/types";
 import { segmentIndexOf } from "@/lib/daySegments";
 
 // ── Datums-Helfer ────────────────────────────────────────────────────────────
@@ -83,6 +83,9 @@ export function spansOverlap(a: StaySpan, b: StaySpan): boolean {
 }
 
 // Findet die erste Buchung derselben Wohnung, die sich mit [check_in, check_out) überschneidet.
+// `status` ist der Status der Buchung, deren Zeitraum geprüft wird (das "eigene" Ende des
+// Vergleichs) — bei "storniert" gibt es nie eine Kollision, in keine Richtung: eine stornierte
+// Buchung blockiert nichts UND wird selbst durch nichts blockiert.
 export function findCollision(
   bookings: Booking[],
   propertyId: string,
@@ -91,10 +94,13 @@ export function findCollision(
   check_out: string,
   ferry_time?: string,
   ferry_time_departure?: string,
+  status?: BookingStatus,
 ): Booking | undefined {
+  if (status === "storniert") return undefined;
   return bookings.find((b) =>
     b.id !== excludeId &&
     b.property_id === propertyId &&
+    b.status !== "storniert" &&
     b.check_in && b.check_out &&
     spansOverlap({ check_in, check_out, ferry_time, ferry_time_departure }, b)
   );
@@ -109,6 +115,7 @@ export function hasCollision(
   check_out: string,
   ferry_time?: string,
   ferry_time_departure?: string,
+  status?: BookingStatus,
 ): boolean {
-  return !!findCollision(bookings, propertyId, excludeId, check_in, check_out, ferry_time, ferry_time_departure);
+  return !!findCollision(bookings, propertyId, excludeId, check_in, check_out, ferry_time, ferry_time_departure, status);
 }

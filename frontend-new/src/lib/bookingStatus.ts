@@ -30,6 +30,13 @@ export const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
     badgeClass: "bg-blue-100 text-blue-700 border border-blue-200",
     dotColor: "#1d4ed8",
   },
+  vertrag_unterschrieben: {
+    value: "vertrag_unterschrieben",
+    label: "Vertrag unterschrieben",
+    barColor: "#0d9488",
+    badgeClass: "bg-teal-100 text-teal-700 border border-teal-200",
+    dotColor: "#0d9488",
+  },
   bezahlt: {
     value: "bezahlt",
     label: "Bezahlt",
@@ -51,16 +58,25 @@ export const STATUS_CONFIG: Record<BookingStatus, StatusConfig> = {
     badgeClass: "bg-emerald-200 text-emerald-900 border border-emerald-300",
     dotColor: "#166534",
   },
+  storniert: {
+    value: "storniert",
+    label: "Storniert",
+    barColor: "#6b7280",
+    badgeClass: "bg-gray-100 text-gray-500 border border-gray-300 line-through",
+    dotColor: "#6b7280",
+  },
 };
 
-// Reihenfolge im Workflow (für Auswahl/Anzeige)
+// Reihenfolge im Workflow (für Auswahl/Anzeige). "storniert" steht bewusst ganz am
+// Ende, nicht in der normalen Fortschritts-Kette — von überall aus stornierbar,
+// gilt daher immer als "Vorwärtsschritt" (kein ungewollter Rückwärts-Dialog).
 export const STATUS_ORDER: BookingStatus[] = [
-  "anfrage", "reserviert", "bestaetigt", "bezahlt", "problem", "abgeschlossen",
+  "anfrage", "reserviert", "bestaetigt", "vertrag_unterschrieben", "bezahlt", "problem", "abgeschlossen", "storniert",
 ];
 
 // Status, bei denen ein Verschieben (Datumsänderung) eine Warnung auslöst
 export const CONFIRMED_STATUSES: BookingStatus[] = [
-  "bestaetigt", "bezahlt", "abgeschlossen",
+  "bestaetigt", "vertrag_unterschrieben", "bezahlt", "abgeschlossen",
 ];
 
 export function statusConfig(status: BookingStatus | undefined): StatusConfig {

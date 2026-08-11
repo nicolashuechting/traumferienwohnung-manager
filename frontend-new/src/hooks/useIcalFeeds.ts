@@ -130,6 +130,7 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       kinderstuhl:     false,
       price:        0,
       priceIsManual: true, // iCal-Importe haben keinen eigenen Preis, nicht automatisch überschreiben
+      cancellationFee: 0,
       channel:      feed.name,
       ical_uid:     ev.uid,
       notes:        ev.description,

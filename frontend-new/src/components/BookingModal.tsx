@@ -154,6 +154,7 @@ const EMPTY_FORM: BookingFormData = {
   kinderstuhl: false,
   price: 0,
   priceIsManual: false,
+  cancellationFee: 0,
   channel: "Manuell",
   ical_uid: "",
   notes: "",
@@ -691,6 +692,13 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const handleStatusPillClick = (s: BookingStatus) => {
     const isBackward = STATUS_ORDER.indexOf(s) < STATUS_ORDER.indexOf(form.status);
     if (isBackward && !window.confirm("Status zurücksetzen?")) return;
+    // Zwischenschritt "Vertrag unterschrieben" übersprungen (von anfrage/reserviert/
+    // bestaetigt direkt auf bezahlt): kurz nachfragen.
+    if (s === "bezahlt" && STATUS_ORDER.indexOf(form.status) < STATUS_ORDER.indexOf("vertrag_unterschrieben") &&
+        !window.confirm("Der Vertrag wurde noch nicht als unterschrieben markiert. Trotzdem als bezahlt markieren?")) return;
+    if (s === "storniert" && form.status !== "storniert") {
+      window.alert('Buchung wird als storniert markiert. Falls laut Stornobedingungen eine Kulanzzahlung fällig ist, trage sie direkt unten im Feld "Kulanz-/Stornobetrag" ein.');
+    }
     set("status", s);
   };
 
@@ -904,6 +912,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       allBookings, dataToSave.property_id, current?.id ?? "",
       dataToSave.check_in, dataToSave.check_out,
       dataToSave.ferry_time, dataToSave.ferry_time_departure,
+      dataToSave.status,
     );
     if (conflict) {
       setPendingCollision({ data: dataToSave, conflict });
@@ -1095,8 +1104,14 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 <ViewRow label="Preis">
                   {current.price.toLocaleString("de-DE")} €
                   {current.priceIsManual && <span className="text-gray-400 text-xs"> (manuell)</span>}
+                  {current.status === "storniert" && <span className="text-gray-400 text-xs"> (regulärer Preis, verfallen)</span>}
                 </ViewRow>
-                <ViewRow label="Bezahlt">{current.is_paid ? "Ja" : "Nein"}</ViewRow>
+                {current.status === "storniert" && (
+                  <ViewRow label="Kulanzbetrag">{current.cancellationFee.toLocaleString("de-DE")} €</ViewRow>
+                )}
+                <ViewRow label={current.status === "storniert" ? "Kulanzbetrag bezahlt" : "Bezahlt"}>
+                  {current.is_paid ? "Ja" : "Nein"}
+                </ViewRow>
                 <ViewRow label="Personen">
                   {persons} {current.children > 0 && <span className="text-gray-400">({current.adults} Erw. + {current.children} Ki.)</span>}
                 </ViewRow>
@@ -1164,7 +1179,8 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     <CheckCircle2 className="w-4 h-4" /> Als Reserviert markieren
                   </button>
                 )}
-                {form.status !== "bestaetigt" && form.status !== "bezahlt" && form.status !== "abgeschlossen" && (
+                {form.status !== "bestaetigt" && form.status !== "vertrag_unterschrieben" && form.status !== "bezahlt"
+                  && form.status !== "abgeschlossen" && form.status !== "storniert" && (
                   <button
                     type="button"
                     onClick={handleConfirm}
@@ -1172,6 +1188,28 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   >
                     <CheckCircle2 className="w-4 h-4" /> Buchung bestätigen
                   </button>
+                )}
+                {form.status === "storniert" && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <div className="flex items-end gap-4 flex-wrap">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Kulanz-/Stornobetrag (€)</label>
+                        <input
+                          type="number" min={0} step="0.01"
+                          value={form.cancellationFee}
+                          onChange={(e) => set("cancellationFee", parseFloat(e.target.value) || 0)}
+                          className={`${inputCls} max-w-[160px]`}
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer pb-2">
+                        <input type="checkbox" checked={form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} className="w-4 h-4 rounded" />
+                        <span className="text-sm font-medium text-gray-700">Kulanzbetrag bezahlt ✓</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Regulärer Preis bleibt zur Referenz erhalten: {form.price.toLocaleString("de-DE")} €.
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -1312,10 +1350,12 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   <input type="number" min={0} max={20} value={form.children} onChange={(e) => setChildrenCount(parseInt(e.target.value) || 0)} className={inputCls} />
                 </div>
                 <div className="flex flex-col justify-end gap-2 pb-1">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} className="w-4 h-4 rounded" />
-                    <span className="text-sm font-medium text-gray-700">Bezahlt ✓</span>
-                  </label>
+                  {form.status !== "storniert" && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} className="w-4 h-4 rounded" />
+                      <span className="text-sm font-medium text-gray-700">Bezahlt ✓</span>
+                    </label>
+                  )}
                   <label className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">Hund 🐕</span>
                     <select

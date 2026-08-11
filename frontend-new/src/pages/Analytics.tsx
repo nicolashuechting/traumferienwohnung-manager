@@ -53,8 +53,19 @@ function totalNightsB(b: Booking) {
 const REVENUE_STATUSES: Booking["status"][] = ["bezahlt", "abgeschlossen"];
 
 // Auslastung nur aus Buchungen, die tatsächlich stehen — reine Anfragen/
-// Reservierungen/Probleme sollen die Belegungsquote nicht künstlich aufblähen.
-const OCCUPANCY_STATUSES: Booking["status"][] = ["bestaetigt", "bezahlt", "abgeschlossen"];
+// Reservierungen/Probleme/Stornierungen sollen die Belegungsquote nicht
+// künstlich aufblähen.
+const OCCUPANCY_STATUSES: Booking["status"][] = ["bestaetigt", "vertrag_unterschrieben", "bezahlt", "abgeschlossen"];
+
+// Stornierte Buchungen zählen nur zum Umsatz, wenn der Kulanzbetrag bereits bezahlt
+// ist (is_paid wird bei status "storniert" für den Kulanzbetrag wiederverwendet) —
+// dann fließt cancellationFee statt price ein (siehe revenueOf/revenueBreakdownOf).
+function countsAsRevenue(b: Booking): boolean {
+  return REVENUE_STATUSES.includes(b.status) || (b.status === "storniert" && b.is_paid);
+}
+function revenueOf(b: Booking): number {
+  return b.status === "storniert" ? (b.cancellationFee ?? 0) : (b.price ?? 0);
+}
 
 function calcStats(bookings: Booking[], filteredProps: typeof properties, y: number, m?: number) {
   const inPeriod = bookings.filter((b) => m ? bookingInMonth(b, y, m) : bookingInYear(b, y));
@@ -68,8 +79,8 @@ function calcStats(bookings: Booking[], filteredProps: typeof properties, y: num
     bookings: inPeriod.length,
     nights:   allNights,
     revenue:  inPeriod
-      .filter((b) => REVENUE_STATUSES.includes(b.status))
-      .reduce((s, b) => s + (b.price ?? 0), 0),
+      .filter(countsAsRevenue)
+      .reduce((s, b) => s + revenueOf(b), 0),
     occupancy: Math.round(occupancy * 10) / 10,
   };
 }
@@ -81,7 +92,7 @@ function delta(curr: number, prev: number) {
 }
 
 // ── Umsatz-Kategorien ─────────────────────────────────────────────────────────
-type RevenueCategory = "nights" | "cleaning" | "dog" | "laundry" | "manual" | "total";
+type RevenueCategory = "nights" | "cleaning" | "dog" | "laundry" | "manual" | "cancellation" | "total";
 
 const CATEGORY_LABELS: Record<RevenueCategory, string> = {
   nights:   "Übernachtungen",
@@ -89,6 +100,7 @@ const CATEGORY_LABELS: Record<RevenueCategory, string> = {
   dog:      "Hund",
   laundry:  "Wäsche",
   manual:   "Manuell",
+  cancellation: "Kulanz",
   total:    "Gesamtumsatz",
 };
 const CATEGORY_COLORS: Record<RevenueCategory, string> = {
@@ -97,45 +109,53 @@ const CATEGORY_COLORS: Record<RevenueCategory, string> = {
   dog:      "#d97706",
   laundry:  "#7c3aed",
   manual:   "#6b7280",
+  cancellation: "#78716c",
   total:    "#10b981",
 };
-// Die 5 echten Einzelkategorien — Standard-Sichtbarkeit und Summenbildung
+// Die echten Einzelkategorien — Standard-Sichtbarkeit und Summenbildung
 // basieren hierauf. "Gesamtumsatz" ist eine abgeleitete Zusatzkategorie, die in
 // der Legende erscheint, aber standardmäßig nicht mit ausgewählt ist.
-const ALL_CATEGORIES: RevenueCategory[] = ["nights", "cleaning", "dog", "laundry", "manual"];
+const ALL_CATEGORIES: RevenueCategory[] = ["nights", "cleaning", "dog", "laundry", "manual", "cancellation"];
 const DISPLAY_CATEGORIES: RevenueCategory[] = [...ALL_CATEGORIES, "total"];
 // Flache Top-Level-Keys fürs Chart-Stacking — Recharts berechnet die Achsen-Domain
 // bei gestapelten Bars über den dataKey-String; ein Funktions-Accessor auf ein
 // verschachteltes Objekt wird dabei nicht korrekt für die Skalierung ausgewertet.
 const CATEGORY_DATA_KEY: Record<RevenueCategory, string> = {
   nights: "cat_nights", cleaning: "cat_cleaning", dog: "cat_dog", laundry: "cat_laundry", manual: "cat_manual",
-  total: "cat_total",
+  cancellation: "cat_cancellation", total: "cat_total",
+};
+const ZERO_REVENUE: Record<RevenueCategory, number> = {
+  nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, cancellation: 0, total: 0,
 };
 
 // Zerlegt eine Buchung in Umsatz-Kategorien (inkl. "total" = Summe aller
-// Kategorien). Nur wenn die gespeicherte Aufschlüsselung rechnerisch noch exakt
-// zum aktuellen `price` summiert (Toleranz 0,01 € für Rundung), wird aufgeteilt —
-// sonst zählt der volle Betrag als "Manuell" (deckt sowohl echte Freitext-Preise
-// als auch nachträglich über den Gesamtpreis überschriebene, dadurch veraltete
-// Aufschlüsselungen ab).
+// Kategorien). Stornierte Buchungen fließen als reiner Kulanzbetrag ein (keine
+// Nebenkosten, da die ja nicht anfallen). Nur wenn die gespeicherte Aufschlüsselung
+// rechnerisch noch exakt zum aktuellen `price` summiert (Toleranz 0,01 € für
+// Rundung), wird aufgeteilt — sonst zählt der volle Betrag als "Manuell" (deckt
+// sowohl echte Freitext-Preise als auch nachträglich über den Gesamtpreis
+// überschriebene, dadurch veraltete Aufschlüsselungen ab).
 function revenueBreakdownOf(b: Booking): Record<RevenueCategory, number> {
-  const zero: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
+  if (b.status === "storniert") {
+    const fee = b.cancellationFee ?? 0;
+    return { ...ZERO_REVENUE, cancellation: fee, total: fee };
+  }
   const price = b.price ?? 0;
   const bd = b.priceBreakdown;
-  if (!bd) return { ...zero, manual: price, total: price };
+  if (!bd) return { ...ZERO_REVENUE, manual: price, total: price };
   const nightsSum = bd.nights.reduce((s, n) => s + n.price, 0);
   const extraFeesSum = bd.extraFees.reduce((s, f) => s + f.amount, 0);
   const breakdownSum = nightsSum + bd.cleaningFee + bd.dogFee + extraFeesSum;
   const consistent = Math.abs(breakdownSum - price) < 0.01;
-  if (!consistent) return { ...zero, manual: price, total: price };
-  return { nights: nightsSum, cleaning: bd.cleaningFee, dog: bd.dogFee, laundry: extraFeesSum, manual: 0, total: price };
+  if (!consistent) return { ...ZERO_REVENUE, manual: price, total: price };
+  return { ...ZERO_REVENUE, nights: nightsSum, cleaning: bd.cleaningFee, dog: bd.dogFee, laundry: extraFeesSum, total: price };
 }
 
 function calcRevenueByCategory(bookings: Booking[], y: number, m?: number) {
   const inPeriod = bookings.filter((b) =>
-    (m ? bookingInMonth(b, y, m) : bookingInYear(b, y)) && REVENUE_STATUSES.includes(b.status));
-  const revenueByCategory: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
-  const countByCategory:   Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
+    (m ? bookingInMonth(b, y, m) : bookingInYear(b, y)) && countsAsRevenue(b));
+  const revenueByCategory: Record<RevenueCategory, number> = { ...ZERO_REVENUE };
+  const countByCategory:   Record<RevenueCategory, number> = { ...ZERO_REVENUE };
   inPeriod.forEach((b) => {
     const bd = revenueBreakdownOf(b);
     (Object.keys(bd) as RevenueCategory[]).forEach((cat) => {
@@ -407,6 +427,7 @@ export function Analytics() {
         cat_dog:      revenueByCategory.dog,
         cat_laundry:  revenueByCategory.laundry,
         cat_manual:   revenueByCategory.manual,
+        cat_cancellation: revenueByCategory.cancellation,
         cat_total:    revenueByCategory.total,
       };
     }),
@@ -428,7 +449,7 @@ export function Analytics() {
   );
 
   const categoryTotals = useMemo(() => {
-    const totals: Record<RevenueCategory, number> = { nights: 0, cleaning: 0, dog: 0, laundry: 0, manual: 0, total: 0 };
+    const totals: Record<RevenueCategory, number> = { ...ZERO_REVENUE };
     periodStats.forEach((p) => {
       DISPLAY_CATEGORIES.forEach((cat) => { totals[cat] += p.revenueByCategory[cat]; });
     });
