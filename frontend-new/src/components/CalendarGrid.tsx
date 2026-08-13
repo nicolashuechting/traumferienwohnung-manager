@@ -15,7 +15,7 @@ import { diffBooking } from "@/lib/bookingHistory";
 import { shouldNotify } from "@/lib/bookingNotify";
 import { sendChangeNotification } from "@/lib/notifyEmail";
 import { NotifyDialog } from "@/components/NotifyDialog";
-import type { Booking, BookingFormData, FieldChange, HouseId, HouseSettings } from "@/types";
+import type { Booking, BookingFormData, FieldChange, HouseId, HouseSettings, Property } from "@/types";
 
 type DragMode = "move" | "resize-start" | "resize-end";
 const HANDLE_W = 10; // Greifbreite der Resize-Ränder
@@ -40,6 +40,7 @@ function propName(id: string): string {
 
 interface CalendarGridProps {
   bookings: Booking[];
+  properties?: Property[]; // gefilterte Liste der anzuzeigenden Wohnungen — Standard: alle
   onBookingClick: (booking: Booking) => void;
   onDateRangeSelect: (propertyId: string, startDate: Date, endDate: Date) => void;
 }
@@ -238,7 +239,7 @@ const HEADER_BG: React.CSSProperties = {
 };
 
 export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(function CalendarGrid(
-  { bookings, onBookingClick, onDateRangeSelect }, ref,
+  { bookings, properties: visibleProperties = properties, onBookingClick, onDateRangeSelect }, ref,
 ) {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [containerWidth, setContainerWidth] = useState(900);
@@ -400,7 +401,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
   const bookingsByProperty = useMemo(() => {
     // 1. Buchungen je Wohnung sammeln
     const raw = new Map<string, Array<{ booking: Booking; startIdx: number; endIdx: number; span: number }>>();
-    properties.forEach((p) => raw.set(p.id, []));
+    visibleProperties.forEach((p) => raw.set(p.id, []));
     bookings.forEach((b) => {
       const s = dayIndexOf(b.check_in);
       const e = dayIndexOf(b.check_out);
@@ -436,7 +437,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
       map.set(propId, withLocal);
     }
     return map;
-  }, [bookings]);
+  }, [bookings, visibleProperties]);
 
   const getDayIndex = useCallback((clientX: number): number => {
     if (!scrollRef.current) return 0;
@@ -474,10 +475,10 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
   }, [onDateRangeSelect]);
 
   const byHouse = useMemo(() =>
-    properties.reduce<Record<string, typeof properties>>((acc, p) => {
+    visibleProperties.reduce<Record<string, typeof visibleProperties>>((acc, p) => {
       (acc[p.house] ??= []).push(p);
       return acc;
-    }, {}), []);
+    }, {}), [visibleProperties]);
 
   const totalWidth = TOTAL_DAYS * DAY_W;
 

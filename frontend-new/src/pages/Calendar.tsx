@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Plus, LayoutGrid, CalendarDays, CalendarCheck } from "lucide-react";
 import { CalendarGrid, type CalendarGridHandle } from "@/components/CalendarGrid";
 import { SingleCalendarView, type SingleCalendarViewHandle } from "@/components/SingleCalendarView";
@@ -9,11 +9,13 @@ import { properties } from "@/lib/properties";
 import type { Booking } from "@/types";
 
 type ViewMode = "multi" | "single";
+type HouseFilter = "all" | "Upstalsboom" | "Haus Anne";
 
 export function Calendar() {
   const { data: bookings = [], isLoading, error } = useBookings();
   const { isViewer } = useUserRole();
   const [viewMode, setViewMode] = useState<ViewMode>("multi");
+  const [houseFilter, setHouseFilter] = useState<HouseFilter>("all");
   const [selectedPropertyId, setSelectedPropertyId] = useState(properties[0].id);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -49,6 +51,14 @@ export function Calendar() {
 
   const selectedProp = properties.find((p) => p.id === selectedPropertyId)!;
 
+  const filteredProperties = useMemo(
+    () => houseFilter === "all" ? properties : properties.filter((p) => p.house === houseFilter),
+    [houseFilter]
+  );
+  const visibleBookingsCount = houseFilter === "all"
+    ? bookings.length
+    : bookings.filter((b) => filteredProperties.some((p) => p.id === b.property_id)).length;
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -56,7 +66,7 @@ export function Calendar() {
         <div>
           <h2 className="text-xl font-bold text-gray-900">Kalender</h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            {bookings.length} Buchung{bookings.length !== 1 ? "en" : ""} · {properties.length} Wohnungen
+            {visibleBookingsCount} Buchung{visibleBookingsCount !== 1 ? "en" : ""} · {filteredProperties.length} Wohnungen
           </p>
         </div>
 
@@ -96,6 +106,25 @@ export function Calendar() {
               Einzelansicht
             </button>
           </div>
+
+          {/* Haus-Filter (nur in der Übersicht) */}
+          {viewMode === "multi" && (
+            <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+              {(["all", "Upstalsboom", "Haus Anne"] as HouseFilter[]).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setHouseFilter(f)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition whitespace-nowrap ${
+                    houseFilter === f
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {f === "all" ? "Alle" : f}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Property selector (only in single view) */}
           {viewMode === "single" && (
@@ -154,6 +183,7 @@ export function Calendar() {
           <CalendarGrid
             ref={calendarRef}
             bookings={bookings}
+            properties={filteredProperties}
             onBookingClick={handleBookingClick}
             onDateRangeSelect={handleDateRangeSelect}
           />
