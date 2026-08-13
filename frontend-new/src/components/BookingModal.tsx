@@ -8,7 +8,7 @@ import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
 import { useUserRole } from "@/hooks/useUserRole";
-import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
+import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
 import { generateConfirmationPdf, resolveLastName } from "@/lib/pdfConfirmation";
 import { splitGuestName } from "@/lib/guestName";
@@ -640,8 +640,11 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     });
   };
 
+  // Vergibt eine Buchungsnummer nur, sobald der Status "bestätigt" oder höher erreicht
+  // ist (siehe NUMBERED_STATUSES) — reine Anfragen/Reservierungen bleiben unnummeriert.
+  // Einmal vergeben bleibt die Nummer erhalten, auch falls der Status später zurückgesetzt wird.
   const ensureNumber = (f: BookingFormData): string =>
-    f.booking_number || generateBookingNumber(f.property_id, f.check_in, existingNumbers);
+    f.booking_number || (NUMBERED_STATUSES.includes(f.status) ? generateBookingNumber(f.property_id, f.check_in, existingNumbers) : "");
 
   // Vorschau der Felder, die beim Wiederherstellen zurückgesetzt würden (aktuell → damals)
   const restorePreview = useMemo<FieldChange[]>(() => {
@@ -680,7 +683,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   if (!open) return null;
 
   const handleConfirm = () => {
-    setForm((prev) => ({ ...prev, status: "bestaetigt", booking_number: prev.booking_number || ensureNumber(prev) }));
+    setForm((prev) => ({ ...prev, status: "bestaetigt", booking_number: ensureNumber({ ...prev, status: "bestaetigt" }) }));
   };
 
   const handleReserve = () => {
@@ -699,7 +702,11 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     if (s === "storniert" && form.status !== "storniert") {
       window.alert('Buchung wird als storniert markiert. Falls laut Stornobedingungen eine Kulanzzahlung fällig ist, trage sie direkt unten im Feld "Kulanz-/Stornobetrag" ein.');
     }
-    set("status", s);
+    // Buchungsnummer sofort im Formular vorbefüllen (nicht erst beim Speichern), damit sie
+    // unabhängig vom gewählten Weg (Schnellaktion "Buchung bestätigen" oder direkter
+    // Statuswechsel, auch bei übersprungenen Zwischenschritten) sofort sichtbar ist.
+    const booking_number = ensureNumber({ ...form, status: s });
+    setForm((prev) => ({ ...prev, status: s, booking_number }));
   };
 
   const handleGeneratePdf = async () => {

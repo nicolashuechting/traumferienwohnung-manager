@@ -79,6 +79,14 @@ export const CONFIRMED_STATUSES: BookingStatus[] = [
   "bestaetigt", "vertrag_unterschrieben", "bezahlt", "abgeschlossen",
 ];
 
+// Status, ab denen automatisch eine Buchungsnummer vergeben wird (sobald einer davon
+// erstmals erreicht wird, unabhängig davon ob Zwischenschritte übersprungen wurden).
+// Bewusst eine eigene Liste statt STATUS_ORDER-Position: "storniert" steht dort nur aus
+// Vorwärts/Rückwärts-Gründen ganz hinten, das hat nichts mit dieser Frage zu tun.
+export const NUMBERED_STATUSES: BookingStatus[] = [
+  "bestaetigt", "vertrag_unterschrieben", "bezahlt", "problem", "abgeschlossen", "storniert",
+];
+
 export function statusConfig(status: BookingStatus | undefined): StatusConfig {
   return STATUS_CONFIG[status ?? "anfrage"] ?? STATUS_CONFIG.anfrage;
 }

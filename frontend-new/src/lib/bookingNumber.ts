@@ -18,8 +18,9 @@ function yearOf(checkIn: string): number {
 
 /**
  * Erzeugt eine eindeutige Buchungsnummer im Format PREFIX-JAHR-NNNN.
- * Die hinteren 4 Stellen sind zufällig (0001–9999) und kollisionsfrei
- * gegenüber `existingNumbers`.
+ * Die hinteren 4 Stellen sind zufällig (1000–9999, bewusst nicht ab 0001 — sonst
+ * ließe sich aus einer niedrigen Nummer wie 0050 ablesen, dass es erst die 50.
+ * Buchung im Jahr war) und kollisionsfrei gegenüber `existingNumbers`.
  */
 export function generateBookingNumber(
   propertyId: string,
@@ -31,14 +32,15 @@ export function generateBookingNumber(
   const used = new Set<string>(existingNumbers);
 
   const base = `${prefix}-${year}-`;
-  // bis zu 9999 zufällige Versuche, dann linearer Fallback
-  for (let i = 0; i < 9999; i++) {
-    const n = 1 + Math.floor(Math.random() * 9999);
+  const MIN = 1000, MAX = 9999;
+  // bis zu 9000 zufällige Versuche, dann linearer Fallback
+  for (let i = 0; i < MAX - MIN + 1; i++) {
+    const n = MIN + Math.floor(Math.random() * (MAX - MIN + 1));
     const candidate = base + String(n).padStart(4, "0");
     if (!used.has(candidate)) return candidate;
   }
   // Fallback: erste freie Nummer linear suchen
-  for (let n = 1; n <= 9999; n++) {
+  for (let n = MIN; n <= MAX; n++) {
     const candidate = base + String(n).padStart(4, "0");
     if (!used.has(candidate)) return candidate;
   }
