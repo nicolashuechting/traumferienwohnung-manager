@@ -77,7 +77,7 @@ export type BookingStatus =
   | "bezahlt"       // Grün  – Zahlung eingegangen
   | "problem"       // Gelb  – z.B. falscher Betrag
   | "abgeschlossen" // Dunkelgrün – ausgecheckt
-  | "storniert";    // Grau, gedeckt – Gast storniert, ggf. mit fälliger Kulanzzahlung
+  | "storniert";    // Grau, gedeckt – Gast storniert, ggf. mit fälligen Stornogebühren
 
 export interface Booking {
   id: string;
@@ -111,7 +111,7 @@ export interface Booking {
   price: number;        // EUR, finaler Betrag (auch 0 ist ein gültiger, bewusster Preis)
   priceIsManual: boolean;        // false = automatisch berechnet, true = von Hand überschrieben
   priceBreakdown?: PriceBreakdown; // nur gesetzt wenn automatisch berechnet
-  cancellationFee: number; // Kulanz-/Stornobetrag bei status "storniert" — price bleibt der reguläre
+  cancellationFee: number; // Stornogebühren bei status "storniert" — price bleibt der reguläre
                             // (verfallene) Preis unangetastet als Referenz erhalten. "bezahlt" für diesen
                             // Betrag wird über das bestehende is_paid-Feld abgebildet (siehe useUpdateBooking).
   channel: string;     // "Manuell" | "Ferienwohnungen.de" | "Baltrumdirekt.de" | …

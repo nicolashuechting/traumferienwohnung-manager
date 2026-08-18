@@ -700,7 +700,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     if (s === "bezahlt" && STATUS_ORDER.indexOf(form.status) < STATUS_ORDER.indexOf("vertrag_unterschrieben") &&
         !window.confirm("Der Vertrag wurde noch nicht als unterschrieben markiert. Trotzdem als bezahlt markieren?")) return;
     if (s === "storniert" && form.status !== "storniert") {
-      window.alert('Buchung wird als storniert markiert. Falls laut Stornobedingungen eine Kulanzzahlung fällig ist, trage sie direkt unten im Feld "Kulanz-/Stornobetrag" ein.');
+      window.alert('Buchung wird als storniert markiert. Falls laut Stornobedingungen eine Stornogebühr fällig ist, trage sie direkt unten im Feld "Stornogebühren" ein.');
     }
     // Buchungsnummer sofort im Formular vorbefüllen (nicht erst beim Speichern), damit sie
     // unabhängig vom gewählten Weg (Schnellaktion "Buchung bestätigen" oder direkter
@@ -1114,9 +1114,9 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   {current.status === "storniert" && <span className="text-gray-400 text-xs"> (regulärer Preis, verfallen)</span>}
                 </ViewRow>
                 {current.status === "storniert" && (
-                  <ViewRow label="Kulanzbetrag">{current.cancellationFee.toLocaleString("de-DE")} €</ViewRow>
+                  <ViewRow label="Stornogebühren">{current.cancellationFee.toLocaleString("de-DE")} €</ViewRow>
                 )}
-                <ViewRow label={current.status === "storniert" ? "Kulanzbetrag bezahlt" : "Bezahlt"}>
+                <ViewRow label={current.status === "storniert" ? "Stornogebühren bezahlt" : "Bezahlt"}>
                   {current.is_paid ? "Ja" : "Nein"}
                 </ViewRow>
                 <ViewRow label="Personen">
@@ -1200,7 +1200,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   <div className="mt-3 pt-3 border-t border-gray-200">
                     <div className="flex items-end gap-4 flex-wrap">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Kulanz-/Stornobetrag (€)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Stornogebühren (€)</label>
                         <input
                           type="number" min={0} step="0.01"
                           value={form.cancellationFee}
@@ -1210,7 +1210,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                       </div>
                       <label className="flex items-center gap-2 cursor-pointer pb-2">
                         <input type="checkbox" checked={form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} className="w-4 h-4 rounded" />
-                        <span className="text-sm font-medium text-gray-700">Kulanzbetrag bezahlt ✓</span>
+                        <span className="text-sm font-medium text-gray-700">Stornogebühren bezahlt ✓</span>
                       </label>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">

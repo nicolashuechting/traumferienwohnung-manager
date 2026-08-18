@@ -105,7 +105,7 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
         + (booking.ferry_time ? `\nAnreise mit Fähre ${booking.ferry_time} Uhr` : "")
         + (booking.ferry_time_departure ? `\nAbreise mit Fähre ${booking.ferry_time_departure} Uhr` : "")
         + (isConflict ? "\n⚠ Überschneidung" : "")
-        + (isCancelled ? `\nStorniert${booking.is_paid ? " – Kulanzbetrag bezahlt" : booking.cancellationFee ? " – Kulanzbetrag offen" : ""}` : "")}
+        + (isCancelled ? `\nStorniert${booking.is_paid ? " – Stornogebühren bezahlt" : booking.cancellationFee ? " – Stornogebühren offen" : ""}` : "")}
     >
       {isCancelled ? (
         <>

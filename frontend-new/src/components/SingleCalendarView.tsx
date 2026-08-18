@@ -221,7 +221,7 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
   });
   const isCancelled = bar.booking.status === "storniert";
   // Der Streifen ist zu dünn für ein Icon — bezahlt/offen wird hier stattdessen über
-  // die Grundfarbe signalisiert (Grün = Kulanzbetrag bezahlt, Grau = noch offen),
+  // die Grundfarbe signalisiert (Grün = Stornogebühren bezahlt, Grau = noch offen),
   // das diagonale Streifenmuster bleibt in beiden Fällen als "storniert"-Signal.
   const cancelledColor = bar.booking.is_paid ? "#16a34a" : statusConfig(bar.booking.status).barColor;
   const style: React.CSSProperties = {
@@ -258,7 +258,7 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
         className="overflow-hidden"
         style={style}
         title={`${bar.booking.guest_name}${bar.booking.booking_number ? ` | ${bar.booking.booking_number}` : ""} | ${bar.booking.check_in} – ${bar.booking.check_out}`
-          + `\nStorniert${bar.booking.is_paid ? " – Kulanzbetrag bezahlt" : bar.booking.cancellationFee ? " – Kulanzbetrag offen" : ""}`}
+          + `\nStorniert${bar.booking.is_paid ? " – Stornogebühren bezahlt" : bar.booking.cancellationFee ? " – Stornogebühren offen" : ""}`}
       />
     );
   }

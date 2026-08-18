@@ -57,8 +57,8 @@ const REVENUE_STATUSES: Booking["status"][] = ["bezahlt", "abgeschlossen"];
 // künstlich aufblähen.
 const OCCUPANCY_STATUSES: Booking["status"][] = ["bestaetigt", "vertrag_unterschrieben", "bezahlt", "abgeschlossen"];
 
-// Stornierte Buchungen zählen nur zum Umsatz, wenn der Kulanzbetrag bereits bezahlt
-// ist (is_paid wird bei status "storniert" für den Kulanzbetrag wiederverwendet) —
+// Stornierte Buchungen zählen nur zum Umsatz, wenn die Stornogebühren bereits
+// bezahlt sind (is_paid wird bei status "storniert" dafür wiederverwendet) —
 // dann fließt cancellationFee statt price ein (siehe revenueOf/revenueBreakdownOf).
 function countsAsRevenue(b: Booking): boolean {
   return REVENUE_STATUSES.includes(b.status) || (b.status === "storniert" && b.is_paid);
@@ -100,7 +100,7 @@ const CATEGORY_LABELS: Record<RevenueCategory, string> = {
   dog:      "Hund",
   laundry:  "Wäsche",
   manual:   "Manuell",
-  cancellation: "Kulanz",
+  cancellation: "Stornogebühren",
   total:    "Gesamtumsatz",
 };
 const CATEGORY_COLORS: Record<RevenueCategory, string> = {
@@ -129,7 +129,7 @@ const ZERO_REVENUE: Record<RevenueCategory, number> = {
 };
 
 // Zerlegt eine Buchung in Umsatz-Kategorien (inkl. "total" = Summe aller
-// Kategorien). Stornierte Buchungen fließen als reiner Kulanzbetrag ein (keine
+// Kategorien). Stornierte Buchungen fließen als reine Stornogebühren ein (keine
 // Nebenkosten, da die ja nicht anfallen). Nur wenn die gespeicherte Aufschlüsselung
 // rechnerisch noch exakt zum aktuellen `price` summiert (Toleranz 0,01 € für
 // Rundung), wird aufgeteilt — sonst zählt der volle Betrag als "Manuell" (deckt

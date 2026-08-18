@@ -555,7 +555,7 @@ export function Bookings() {
                       <td className="px-3 py-3 text-center text-gray-700">{b.dogCount > 0 ? b.dogCount : "–"}</td>
                       <td className="px-3 py-3 text-gray-800 whitespace-nowrap text-right font-medium">
                         {b.status === "storniert"
-                          ? `${b.cancellationFee.toLocaleString("de-DE")} € (Kulanz)`
+                          ? `${b.cancellationFee.toLocaleString("de-DE")} € (Stornogebühren)`
                           : b.price > 0 ? `${b.price.toLocaleString("de-DE")} €` : "–"}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={b.status} /></td>
