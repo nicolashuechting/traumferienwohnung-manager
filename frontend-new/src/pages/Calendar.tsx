@@ -11,6 +11,13 @@ import type { Booking } from "@/types";
 type ViewMode = "multi" | "single";
 type HouseFilter = "all" | "Upstalsboom" | "Haus Anne";
 
+// NIEMALS toISOString() für lokale Kalendertage verwenden — das konvertiert nach UTC
+// und verschiebt das Datum in jeder Zeitzone mit positivem UTC-Offset (z.B. Deutschland)
+// um einen Tag zurück.
+function toLocalISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function Calendar() {
   const { data: bookings = [], isLoading, error } = useBookings();
   const { isViewer } = useUserRole();
@@ -32,13 +39,10 @@ export function Calendar() {
 
   const handleDateRangeSelect = (propertyId: string, startDate: Date, endDate: Date) => {
     setSelectedBooking(null);
-    // check_out = day after last selected day
-    const checkOut = new Date(endDate);
-    checkOut.setDate(checkOut.getDate() + 1);
     setPrefill({
       propertyId,
-      checkIn: startDate.toISOString().split("T")[0],
-      checkOut: checkOut.toISOString().split("T")[0],
+      checkIn: toLocalISO(startDate),
+      checkOut: toLocalISO(endDate),
     });
     setModalOpen(true);
   };
