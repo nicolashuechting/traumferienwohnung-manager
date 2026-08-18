@@ -46,6 +46,7 @@ export const HISTORY_FIELDS: Record<string, FieldDef> = {
   } },
   dogCount:       { label: "Hunde",        format: (v) => (Number(v) > 0 ? String(v) : "Nein") },
   kinderbett:     { label: "Kinderbett",       format: (v) => (v ? "Ja" : "Nein") },
+  babybett:       { label: "Babybett",         format: (v) => (v ? "Ja" : "Nein") },
   rausfallschutz: { label: "Rausfallschutz",   format: (v) => (v ? "Ja" : "Nein") },
   kinderstuhl:    { label: "Kinderstuhl",      format: (v) => (v ? "Ja" : "Nein") },
   price:          { label: "Preis",        format: (v) => `${Number(v).toLocaleString("de-DE")} €` },

@@ -101,6 +101,7 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
     kinderAlter:  Array.isArray(raw.kinderAlter) ? (raw.kinderAlter as unknown[]).map(Number) : [],
     dogCount:     typeof raw.dogCount === "number" ? raw.dogCount : (raw.dog || raw.hasDog ? 1 : 0),
     kinderbett:      Boolean(raw.kinderbett),
+    babybett:        Boolean(raw.babybett),
     rausfallschutz:  Boolean(raw.rausfallschutz),
     kinderstuhl:     Boolean(raw.kinderstuhl),
     price:        Number(raw.price   ?? 0),

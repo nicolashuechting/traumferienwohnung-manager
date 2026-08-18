@@ -126,6 +126,7 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       kinderAlter:  [],
       dogCount:     0,
       kinderbett:      false,
+      babybett:        false,
       rausfallschutz:  false,
       kinderstuhl:     false,
       price:        0,

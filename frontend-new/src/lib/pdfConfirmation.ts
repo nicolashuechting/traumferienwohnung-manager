@@ -411,7 +411,21 @@ export async function generateConfirmationPdf(
     cursor.y -= LINE_H;
   }
   cursor.gap(4);
-  cursor.paragraph(`Telefonnummer: ${booking.phone || ""}`);
+  if (!booking.phone) {
+    cursor.ensureSpace(LINE_H + 4);
+    const label = "Telefonnummer:";
+    cursor.page.drawText(label, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+    const labelW = fonts.regular.widthOfTextAtSize(label, FONT_SIZE);
+    const fieldX = MARGIN + labelW + 6;
+    drawInteractiveTextField(cursor, fieldX, cursor.y, 220, 13);
+    cursor.page.drawLine({
+      start: { x: fieldX, y: cursor.y - 14 }, end: { x: fieldX + 220, y: cursor.y - 14 },
+      thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
+    });
+    cursor.y -= LINE_H;
+  } else {
+    cursor.paragraph(`Telefonnummer: ${booking.phone}`);
+  }
   if (!booking.email) {
     cursor.ensureSpace(LINE_H + 4);
     const label = "E-Mail:";
@@ -436,11 +450,14 @@ export async function generateConfirmationPdf(
   {
     const items: { label: string; checked: boolean }[] = [
       { label: "Kinderbett", checked: booking.kinderbett },
+    ];
+    if (house.id === "haus-anne") items.push({ label: "Babybett", checked: booking.babybett });
+    items.push(
       { label: "Rausfallschutz", checked: booking.rausfallschutz },
       { label: "Kinderstuhl", checked: booking.kinderstuhl },
-    ];
+    );
     cursor.ensureSpace(CHECKBOX_SIZE + 4);
-    const colW = CONTENT_W / 3;
+    const colW = CONTENT_W / items.length;
     items.forEach((item, i) => {
       const x = MARGIN + i * colW;
       drawStaticCheckbox(cursor, x, cursor.y, item.checked);
@@ -644,6 +661,9 @@ export async function generateConfirmationPdf(
     const colW = CONTENT_W / 2 - 20;
     cursor.page.drawLine({ start: { x: MARGIN, y: lineY }, end: { x: MARGIN + colW, y: lineY }, thickness: 0.75, color: rgb(0, 0, 0) });
     cursor.page.drawLine({ start: { x: MARGIN + CONTENT_W / 2 + 20, y: lineY }, end: { x: PAGE_W - MARGIN, y: lineY }, thickness: 0.75, color: rgb(0, 0, 0) });
+    // Antippbares Feld direkt auf der Linie, damit Datum/Ort auch am Tablet/Handy
+    // eingetippt statt nur handschriftlich ergänzt werden können.
+    drawInteractiveTextField(cursor, MARGIN, lineY + 13, colW, 13);
     cursor.page.drawText("Datum, Ort", { x: MARGIN, y: lineY - 12, size: FONT_SIZE, font: fonts.bold });
     cursor.page.drawText("Unterschrift", { x: MARGIN + CONTENT_W / 2 + 20, y: lineY - 12, size: FONT_SIZE, font: fonts.bold });
     cursor.y = lineY - 12;

@@ -150,6 +150,7 @@ const EMPTY_FORM: BookingFormData = {
   kinderAlter: [],
   dogCount: 0,
   kinderbett: false,
+  babybett: false,
   rausfallschutz: false,
   kinderstuhl: false,
   price: 0,
@@ -409,6 +410,9 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const [pdfFileName, setPdfFileName] = useState("");
   const [pdfUploadError, setPdfUploadError] = useState("");
   const [pdfSaving, setPdfSaving] = useState(false);
+  // "Bestätigung erstellen" bei ungespeicherten Änderungen: erst speichern (inkl.
+  // gewohnter Diff-/Kollisions-Bestätigung), danach automatisch die PDF erstellen.
+  const [pdfAfterSave, setPdfAfterSave] = useState(false);
   const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
   const [guestSuggestion, setGuestSuggestion] = useState<Guest | null>(null);
   const [nameCollisionHint, setNameCollisionHint] = useState<string | null>(null);
@@ -516,6 +520,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setShowHistory(false);
     setRestoreEntry(null);
     setPendingCollision(null);
+    setPdfAfterSave(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
 
@@ -670,8 +675,8 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       if (e.key !== "Escape") return;
       e.stopPropagation();
       if (restoreEntry) { setRestoreEntry(null); return; }
-      if (pendingCollision) { setPendingCollision(null); return; }
-      if (showSaveDiff) { setShowSaveDiff(false); return; }
+      if (pendingCollision) { setPendingCollision(null); setPdfAfterSave(false); return; }
+      if (showSaveDiff) { setShowSaveDiff(false); setPdfAfterSave(false); return; }
       if (showHistory) { setShowHistory(false); return; }
       if (mode === "edit") { attemptCancel(); return; }
       onClose();
@@ -709,10 +714,14 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setForm((prev) => ({ ...prev, status: s, booking_number }));
   };
 
-  const handleGeneratePdf = async () => {
-    if (!current) return;
+  // `bookingOverride` erlaubt, direkt nach einem Speichern mit den frisch gemergten
+  // Daten zu arbeiten, statt mit dem (in diesem Render-Zyklus noch alten) `current`
+  // aus dem Closure — setCurrent() wirkt erst im nächsten Render.
+  const handleGeneratePdf = async (bookingOverride?: Booking) => {
+    const target = bookingOverride ?? current;
+    if (!target) return;
     setPdfError("");
-    const prop = properties.find((p) => p.id === current.property_id);
+    const prop = properties.find((p) => p.id === target.property_id);
     const houseId: HouseId = prop?.house === "Haus Anne" ? "haus-anne" : "upstalsboom";
     const house = houseSettings.find((h) => h.id === houseId);
     if (!house) {
@@ -723,7 +732,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     let bytes: Uint8Array;
     try {
       const logoBytes = await fetch(LOGO_URLS[houseId]).then((r) => r.arrayBuffer()).catch(() => null);
-      bytes = await generateConfirmationPdf(current, house, logoBytes, { includeNewsletter: marketingConsent ? false : includeNewsletter });
+      bytes = await generateConfirmationPdf(target, house, logoBytes, { includeNewsletter: marketingConsent ? false : includeNewsletter });
     } catch (e) {
       setPdfError(`PDF konnte nicht erstellt werden: ${(e as Error).message}`);
       setPdfLoading(false);
@@ -733,14 +742,14 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
     setPdfBytes(bytes);
-    setPdfFileName(`Buchungsbestaetigung_${current.booking_number || current.id}.pdf`);
+    setPdfFileName(`Buchungsbestaetigung_${target.booking_number || target.id}.pdf`);
     setPdfLoading(false);
 
     // Ablage in Firebase Storage läuft unabhängig im Hintergrund weiter (blockiert die
     // Buttons nicht) und bricht nach 20s ab, falls Storage nicht erreichbar ist.
     setPdfUploadError("");
     setPdfSaving(true);
-    const bookingId = current.id;
+    const bookingId = target.id;
     withTimeout(uploadConfirmationPdf(bookingId, bytes), 20000)
       .then((result) => setSavedConfirmation(result))
       .catch((e) => setPdfUploadError(`Ablage in Firebase Storage fehlgeschlagen: ${(e as Error).message}`))
@@ -903,6 +912,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
         qc.invalidateQueries({ queryKey: ["guests"] });
       }
       setMode("view");
+      if (pdfAfterSave) { setPdfAfterSave(false); await handleGeneratePdf(); }
       return;
     }
     setPendingSave({ data: dataToSave, changes });
@@ -949,15 +959,31 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
           await upsertGuestFields(data.email, { personNotes, marketingConsent });
           qc.invalidateQueries({ queryKey: ["guests"] });
         }
-        setCurrent({ ...current, ...data });
+        const merged = { ...current, ...data };
+        setCurrent(merged);
         setForm(data);
         setPendingSave(null);
         setMode("view");
+        if (pdfAfterSave) { setPdfAfterSave(false); await handleGeneratePdf(merged); }
       } catch (e) {
         setError((e as Error).message);
+        setPdfAfterSave(false);
       }
     };
     await withNotifyCheck(current, data, "update", actuallyUpdate);
+  };
+
+  // "Bestätigung erstellen" bei ungespeicherten Änderungen im Bearbeiten-Modus: erst
+  // wie gewohnt speichern (inkl. Diff-/Kollisions-Bestätigung), danach automatisch die
+  // PDF erstellen — sonst würden z.B. eine gerade erst vergebene Buchungsnummer oder
+  // eine geänderte Personenzahl in der PDF fehlen.
+  const handleGeneratePdfClick = async () => {
+    if (mode === "edit" && current && diffBooking(current, form).length > 0) {
+      setPdfAfterSave(true);
+      await handleSaveClick();
+    } else {
+      await handleGeneratePdf();
+    }
   };
 
   const handleDelete = async () => {
@@ -1128,10 +1154,11 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   </ViewRow>
                 )}
                 <ViewRow label="Hund">{current.dogCount > 0 ? `${current.dogCount} 🐕` : "Nein"}</ViewRow>
-                {(current.kinderbett || current.rausfallschutz || current.kinderstuhl) && (
+                {(current.kinderbett || current.babybett || current.rausfallschutz || current.kinderstuhl) && (
                   <ViewRow label="Ausstattung">
                     {[
                       current.kinderbett && "Kinderbett",
+                      current.babybett && "Babybett",
                       current.rausfallschutz && "Rausfallschutz",
                       current.kinderstuhl && "Kinderstuhl",
                     ].filter(Boolean).join(", ")}
@@ -1394,6 +1421,12 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                     <input type="checkbox" checked={form.kinderbett} onChange={(e) => set("kinderbett", e.target.checked)} className="w-4 h-4 rounded" />
                     <span className="text-sm font-medium text-gray-700">Kinderbett</span>
                   </label>
+                  {selectedProperty?.house === "Haus Anne" && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.babybett} onChange={(e) => set("babybett", e.target.checked)} className="w-4 h-4 rounded" />
+                      <span className="text-sm font-medium text-gray-700">Babybett</span>
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={form.rausfallschutz} onChange={(e) => set("rausfallschutz", e.target.checked)} className="w-4 h-4 rounded" />
                     <span className="text-sm font-medium text-gray-700">Rausfallschutz</span>
@@ -1465,7 +1498,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={handleGeneratePdf}
+                      onClick={handleGeneratePdfClick}
                       disabled={pdfLoading}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
                     >
@@ -1572,7 +1605,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 ({fmtDate(pendingCollision.conflict.check_in)} – {fmtDate(pendingCollision.conflict.check_out)}). Trotzdem speichern?
               </p>
               <div className="flex justify-end gap-2">
-                <button onClick={() => setPendingCollision(null)} disabled={isLoading}
+                <button onClick={() => { setPendingCollision(null); setPdfAfterSave(false); }} disabled={isLoading}
                   className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition disabled:opacity-50">
                   Abbrechen
                 </button>
@@ -1601,7 +1634,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 ))}
               </ul>
               <div className="flex justify-end gap-2">
-                <button onClick={() => setShowSaveDiff(false)} disabled={isLoading}
+                <button onClick={() => { setShowSaveDiff(false); setPdfAfterSave(false); }} disabled={isLoading}
                   className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition disabled:opacity-50">
                   Zurück
                 </button>

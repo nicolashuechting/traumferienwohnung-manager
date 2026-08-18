@@ -106,6 +106,7 @@ export interface Booking {
   kinderAlter: number[]; // Alter pro Kind, z.B. [3, 7, 10]
   dogCount: number;    // Anzahl Hunde, 0–3
   kinderbett: boolean;
+  babybett: boolean; // nur Haus Anne — bei Upstalsboom nicht angeboten
   rausfallschutz: boolean;
   kinderstuhl: boolean;
   price: number;        // EUR, finaler Betrag (auch 0 ist ein gültiger, bewusster Preis)
