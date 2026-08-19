@@ -688,6 +688,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   if (!open) return null;
 
   const handleConfirm = () => {
+    window.alert('Buchung wird bestätigt. Jetzt ist der richtige Zeitpunkt, die Buchungsbestätigung per E-Mail zu verschicken. Falls du dafür gerade keine Zeit hast, lass die Buchung lieber auf "Reserviert" stehen.');
     setForm((prev) => ({ ...prev, status: "bestaetigt", booking_number: ensureNumber({ ...prev, status: "bestaetigt" }) }));
   };
 
@@ -706,6 +707,9 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
         !window.confirm("Der Vertrag wurde noch nicht als unterschrieben markiert. Trotzdem als bezahlt markieren?")) return;
     if (s === "storniert" && form.status !== "storniert") {
       window.alert('Buchung wird als storniert markiert. Falls laut Stornobedingungen eine Stornogebühr fällig ist, trage sie direkt unten im Feld "Stornogebühren" ein.');
+    }
+    if (s === "bestaetigt" && form.status !== "bestaetigt") {
+      window.alert('Buchung wird bestätigt. Jetzt ist der richtige Zeitpunkt, die Buchungsbestätigung per E-Mail zu verschicken. Falls du dafür gerade keine Zeit hast, lass die Buchung lieber auf "Reserviert" stehen.');
     }
     // Buchungsnummer sofort im Formular vorbefüllen (nicht erst beim Speichern), damit sie
     // unabhängig vom gewählten Weg (Schnellaktion "Buchung bestätigen" oder direkter
