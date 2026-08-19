@@ -245,21 +245,23 @@ function drawInteractiveCheckbox(cursor: Cursor, x: number, yTop: number) {
   field.addToPage(cursor.page, { x, y: yTop - CHECKBOX_SIZE, width: CHECKBOX_SIZE, height: CHECKBOX_SIZE });
 }
 
-function drawInteractiveTextField(cursor: Cursor, x: number, yTop: number, width: number, height = 12) {
+function drawInteractiveTextField(cursor: Cursor, x: number, yTop: number, width: number, height = 12, initialText?: string) {
   const form = cursor.doc.getForm();
   const field = form.createTextField(`tf_${fieldCounter++}`);
   // addToPage() erzeugt zuerst das Widget (inkl. eines Standard-/DA-Eintrags) —
-  // erst DANACH kann setFontSize() sicher darauf aufbauen (sonst MissingDAEntryError).
+  // erst DANACH kann setFontSize()/setText() sicher darauf aufbauen (sonst MissingDAEntryError).
   field.addToPage(cursor.page, { x, y: yTop - height, width, height, borderWidth: 0, font: cursor.fonts.regular });
   field.setFontSize(FONT_SIZE);
+  if (initialText) field.setText(initialText);
   return field;
 }
 
 // Sichtbarer Linktext + echte klickbare Link-Annotation (pdf-lib bietet dafür
 // keine High-Level-API, daher direkt eine /Annots-Annotation vom Typ Link).
-function drawLink(cursor: Cursor, text: string, url: string, x: number, yTop: number, size = FONT_SIZE) {
-  cursor.page.drawText(text, { x, y: yTop - size, size, font: cursor.fonts.regular, color: rgb(0.1, 0.3, 0.75) });
-  const width = cursor.fonts.regular.widthOfTextAtSize(text, size);
+function drawLink(cursor: Cursor, text: string, url: string, x: number, yTop: number, size = FONT_SIZE, bold = false) {
+  const font = bold ? cursor.fonts.bold : cursor.fonts.regular;
+  cursor.page.drawText(text, { x, y: yTop - size, size, font, color: rgb(0.1, 0.3, 0.75) });
+  const width = font.widthOfTextAtSize(text, size);
   const rect = [x, yTop - size - 2, x + width, yTop + 1];
   const linkAnnot = cursor.doc.context.register(
     cursor.doc.context.obj({
@@ -368,7 +370,7 @@ export async function generateConfirmationPdf(
   // damit kein unnötig großer Leerraum unter dem Logo entsteht.
   const logoBottom = logoDims ? titleTop - logoDims.height : null;
   const besideLogoW = logoDims ? CONTENT_W - logoDims.width - 16 : CONTENT_W;
-  cursor.paragraph(`Sehr geehrte Familie ${resolveLastName(booking)}`, { maxWidth: besideLogoW });
+  cursor.paragraph(`Liebe Frau/Herr/Familie ${resolveLastName(booking)},`, { maxWidth: besideLogoW });
   cursor.gap(4);
   cursor.mixedParagraph(reservationSegments(booking), { maxWidth: besideLogoW });
   // Falls das Logo tiefer reicht als der Text daneben, erst ab Logo-Unterkante weitermachen.
@@ -442,7 +444,26 @@ export async function generateConfirmationPdf(
     cursor.paragraph(`E-Mail: ${booking.email}`);
   }
   cursor.gap(4);
-  cursor.paragraph(`Anreisende Personen: ${booking.adults + booking.children}    Erwachsene: ${booking.adults}    Kinder: ${booking.children}`);
+  {
+    // Kinderalter direkt hinter "Kinder: N" in Klammern — vorausgefüllt, falls bereits
+    // bekannt (kinderAlter > 0), sonst ein leeres, vom Gast ausfüllbares Feld.
+    const line = `Anreisende Personen: ${booking.adults + booking.children}    Erwachsene: ${booking.adults}    Kinder: ${booking.children}`;
+    cursor.ensureSpace(LINE_H);
+    cursor.page.drawText(line, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+    if (booking.children > 0) {
+      const lineW = fonts.regular.widthOfTextAtSize(line, FONT_SIZE);
+      const preLabel = "(Alter: ";
+      const preX = MARGIN + lineW + 8; // etwas größerer Abstand zu "Kinder: N"
+      cursor.page.drawText(preLabel, { x: preX, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+      const preW = fonts.regular.widthOfTextAtSize(preLabel, FONT_SIZE);
+      const knownAges = booking.kinderAlter.slice(0, booking.children).filter((a) => a > 0);
+      const fieldX = preX + preW;
+      const fieldW = 34; // schmal — nur für ein, zwei kurze Zahlen gedacht
+      drawInteractiveTextField(cursor, fieldX, cursor.y, fieldW, 13, knownAges.length > 0 ? knownAges.join(", ") : undefined);
+      cursor.page.drawText(" Jahre)", { x: fieldX + fieldW, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+    }
+    cursor.y -= LINE_H;
+  }
   cursor.paragraph(`Anzahl Hunde: ${booking.dogCount}`);
   cursor.gap(4);
   cursor.paragraph("Besondere Wünsche:", { bold: true });
@@ -568,7 +589,7 @@ export async function generateConfirmationPdf(
   // 11. Kurkarten-Hinweis
   cursor.ensureSpace(LINE_H);
   {
-    const pre = "Bitte denken Sie an Ihre Kurkarten (";
+    const pre = "Bitte denken Sie an Ihre Kurkarten/Gästebeitrag (";
     cursor.page.drawText(pre, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
     const preW = fonts.regular.widthOfTextAtSize(pre, FONT_SIZE);
     const linkW = drawLink(cursor, "www.baltrum.de", "https://www.baltrum.de", MARGIN + preW, cursor.y);
@@ -578,95 +599,105 @@ export async function generateConfirmationPdf(
   cursor.mixedParagraph([{ text: "Bei Vermieter bitte nach „" }, { text: house.kurtaxeSuchname, bold: true }, { text: "“ suchen." }]);
   cursor.gap(8);
 
-  // 12. Fährzeiten, zweispaltig
+  // 12–15. Fährzeiten + Grußmail-Frage + Bestätigungssatz + Unterschrift bilden einen
+  // zusammenhängenden Block mit EINER gemeinsamen Seitenumbruch-Entscheidung — sonst
+  // könnte z.B. nur die Unterschrift allein auf der nächsten Seite landen.
   {
-    const colW = CONTENT_W / 2 - 10;
-    const leftX = MARGIN;
-    const rightX = MARGIN + CONTENT_W / 2 + 10;
-
     const arrivalTimes = getArrivalTimes(booking.check_in);
     const departureTimes = getDepartureTimes(booking.check_out);
     const arrivalKnown = !!booking.ferry_time && arrivalTimes.includes(booking.ferry_time);
     const departureKnown = !!booking.ferry_time_departure && departureTimes.includes(booking.ferry_time_departure);
+    const ferryRows = Math.max(arrivalTimes.length, departureTimes.length) + 1; // +1 für "Andere Zeit"
+    const ferryBlockH = LINE_H * (ferryRows + 2);
 
-    const rows = Math.max(arrivalTimes.length, departureTimes.length) + 1; // +1 für "Andere Zeit"
-    // Überschrift + Tabelle als Ganzes reservieren, damit weder die Tabelle
-    // mitten drin umbricht noch die Überschrift ohne Tabelle allein zurückbleibt.
-    cursor.ensureSpace(LINE_H * (rows + 2));
+    const newsletterText = `Ja, ich freue mich ab und an über eine kleine Grußmail von ${house.name} – als Erinnerung an die Insel und rechtzeitigen Buchungshinweis. Ich kann die Einwilligung jederzeit formlos widerrufen.`;
+    const newsletterWrapped = options.includeNewsletter
+      ? wrapText(newsletterText, fonts.regular, FONT_SIZE, CONTENT_W - (CHECKBOX_SIZE + 5))
+      : [];
+    const newsletterBlockH = options.includeNewsletter ? newsletterWrapped.length * LINE_H + 16 : 0;
 
-    cursor.page.drawText("Fährzeiten (bitte ankreuzen oder eigene Zeit angeben):", { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.bold });
-    cursor.y -= LINE_H + 4;
+    const confirmText = "Hiermit bestätige ich die Buchung und die obigen Daten verbindlich.";
+    const confirmWrapped = wrapText(confirmText, fonts.regular, FONT_SIZE, CONTENT_W);
+    const confirmBlockH = confirmWrapped.length * LINE_H;
 
-    cursor.page.drawText("Anreise:", { x: leftX, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.bold });
-    cursor.page.drawText("Abreise:", { x: rightX, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.bold });
-    cursor.y -= LINE_H;
+    const signatureGap = LINE_H * 3;
+    const totalNeeded = ferryBlockH + 14 + newsletterBlockH + confirmBlockH + signatureGap + SIGNATURE_BLOCK_H;
+    if (cursor.y - totalNeeded < MARGIN + FOOTER_ZONE_H) cursor.addPage();
 
-    for (let i = 0; i < rows; i++) {
-      const rowY = cursor.y;
-      // Anreise-Spalte
-      if (i < arrivalTimes.length) {
-        const time = arrivalTimes[i];
-        if (arrivalKnown) drawStaticCheckbox(cursor, leftX, rowY, time === booking.ferry_time);
-        else drawInteractiveCheckbox(cursor, leftX, rowY);
-        cursor.page.drawText(`${time} Uhr`, { x: leftX + CHECKBOX_SIZE + 5, y: rowY - CHECKBOX_SIZE + 1, size: FONT_SIZE, font: fonts.regular });
-      } else if (i === arrivalTimes.length && !arrivalKnown) {
-        cursor.page.drawText("Andere Zeit:", { x: leftX, y: rowY - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
-        drawInteractiveTextField(cursor, leftX + 62, rowY, colW - 62, 13);
-      }
-      // Abreise-Spalte
-      if (i < departureTimes.length) {
-        const time = departureTimes[i];
-        if (departureKnown) drawStaticCheckbox(cursor, rightX, rowY, time === booking.ferry_time_departure);
-        else drawInteractiveCheckbox(cursor, rightX, rowY);
-        cursor.page.drawText(`${time} Uhr`, { x: rightX + CHECKBOX_SIZE + 5, y: rowY - CHECKBOX_SIZE + 1, size: FONT_SIZE, font: fonts.regular });
-      } else if (i === departureTimes.length && !departureKnown) {
-        cursor.page.drawText("Andere Zeit:", { x: rightX, y: rowY - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
-        drawInteractiveTextField(cursor, rightX + 62, rowY, colW - 62, 13);
-      }
+    // Fährzeiten, zweispaltig
+    {
+      const colW = CONTENT_W / 2 - 10;
+      const leftX = MARGIN;
+      const rightX = MARGIN + CONTENT_W / 2 + 10;
+
+      const pre = "Fährzeiten laut ";
+      cursor.page.drawText(pre, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.bold });
+      const preW = fonts.bold.widthOfTextAtSize(pre, FONT_SIZE);
+      const linkW = drawLink(cursor, "www.baltrum-linie.de", "https://www.baltrum-linie.de", MARGIN + preW, cursor.y, FONT_SIZE, true);
+      cursor.page.drawText(" (bitte ankreuzen):", { x: MARGIN + preW + linkW, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.bold });
+      cursor.y -= LINE_H + 4;
+
+      cursor.page.drawText(`Anreise: ${fmtDate(booking.check_in)}`, { x: leftX, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.bold });
+      cursor.page.drawText(`Abreise: ${fmtDate(booking.check_out)}`, { x: rightX, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.bold });
       cursor.y -= LINE_H;
-    }
-  }
-  // Größerer Absatz vor der Grußmail-Frage.
-  cursor.gap(14);
 
-  // 13. Newsletter-Opt-in
-  if (options.includeNewsletter) {
-    cursor.ensureSpace(LINE_H * 2);
-    const rowY = cursor.y;
-    drawInteractiveCheckbox(cursor, MARGIN, rowY);
-    const text = `Ja, ich freue mich 1–2 Mal im Jahr über eine kleine Grußmail von ${house.name} – als Erinnerung an die Insel und rechtzeitigen Buchungshinweis.`;
-    const wrapped = wrapText(text, fonts.regular, FONT_SIZE, CONTENT_W - (CHECKBOX_SIZE + 5));
-    wrapped.forEach((line, i) => {
-      if (i > 0) cursor.ensureSpace(LINE_H);
-      cursor.page.drawText(line, { x: MARGIN + CHECKBOX_SIZE + 5, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+      for (let i = 0; i < ferryRows; i++) {
+        const rowY = cursor.y;
+        // Anreise-Spalte
+        if (i < arrivalTimes.length) {
+          const time = arrivalTimes[i];
+          if (arrivalKnown) drawStaticCheckbox(cursor, leftX, rowY, time === booking.ferry_time);
+          else drawInteractiveCheckbox(cursor, leftX, rowY);
+          cursor.page.drawText(`${time} Uhr`, { x: leftX + CHECKBOX_SIZE + 5, y: rowY - CHECKBOX_SIZE + 1, size: FONT_SIZE, font: fonts.regular });
+        } else if (i === arrivalTimes.length && !arrivalKnown) {
+          cursor.page.drawText("Andere Zeit:", { x: leftX, y: rowY - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+          drawInteractiveTextField(cursor, leftX + 62, rowY, colW - 62, 13);
+        }
+        // Abreise-Spalte
+        if (i < departureTimes.length) {
+          const time = departureTimes[i];
+          if (departureKnown) drawStaticCheckbox(cursor, rightX, rowY, time === booking.ferry_time_departure);
+          else drawInteractiveCheckbox(cursor, rightX, rowY);
+          cursor.page.drawText(`${time} Uhr`, { x: rightX + CHECKBOX_SIZE + 5, y: rowY - CHECKBOX_SIZE + 1, size: FONT_SIZE, font: fonts.regular });
+        } else if (i === departureTimes.length && !departureKnown) {
+          cursor.page.drawText("Andere Zeit:", { x: rightX, y: rowY - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+          drawInteractiveTextField(cursor, rightX + 62, rowY, colW - 62, 13);
+        }
+        cursor.y -= LINE_H;
+      }
+    }
+    cursor.gap(14);
+
+    // Newsletter-Opt-in
+    if (options.includeNewsletter) {
+      drawInteractiveCheckbox(cursor, MARGIN, cursor.y);
+      newsletterWrapped.forEach((line) => {
+        cursor.page.drawText(line, { x: MARGIN + CHECKBOX_SIZE + 5, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+        cursor.y -= LINE_H;
+      });
+      cursor.gap(16);
+    }
+
+    // Bestätigungssatz
+    confirmWrapped.forEach((line) => {
+      cursor.page.drawText(line, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
       cursor.y -= LINE_H;
     });
-    cursor.gap(16);
-  }
 
-  // 14. Abschiedssatz
-  cursor.paragraph("Schon heute wünschen wir Ihnen eine gute Anreise und einen schönen Aufenthalt auf Baltrum.");
-
-  // 15. Unterschriftsblock — kleiner fester Abstand (~3 Zeilen), sonst neue Seite
-  const footerTopLimit = MARGIN + FOOTER_ZONE_H;
-  const remaining = cursor.y - footerTopLimit;
-  const signatureGap = LINE_H * 3;
-  if (remaining < signatureGap + SIGNATURE_BLOCK_H) {
-    cursor.addPage();
-  } else {
+    // Unterschriftsblock
     cursor.gap(signatureGap);
-  }
-  {
-    const lineY = cursor.y - 30;
-    const colW = CONTENT_W / 2 - 20;
-    cursor.page.drawLine({ start: { x: MARGIN, y: lineY }, end: { x: MARGIN + colW, y: lineY }, thickness: 0.75, color: rgb(0, 0, 0) });
-    cursor.page.drawLine({ start: { x: MARGIN + CONTENT_W / 2 + 20, y: lineY }, end: { x: PAGE_W - MARGIN, y: lineY }, thickness: 0.75, color: rgb(0, 0, 0) });
-    // Antippbares Feld direkt auf der Linie, damit Datum/Ort auch am Tablet/Handy
-    // eingetippt statt nur handschriftlich ergänzt werden können.
-    drawInteractiveTextField(cursor, MARGIN, lineY + 13, colW, 13);
-    cursor.page.drawText("Datum, Ort", { x: MARGIN, y: lineY - 12, size: FONT_SIZE, font: fonts.bold });
-    cursor.page.drawText("Unterschrift", { x: MARGIN + CONTENT_W / 2 + 20, y: lineY - 12, size: FONT_SIZE, font: fonts.bold });
-    cursor.y = lineY - 12;
+    {
+      const lineY = cursor.y - 30;
+      const colW = CONTENT_W / 2 - 20;
+      cursor.page.drawLine({ start: { x: MARGIN, y: lineY }, end: { x: MARGIN + colW, y: lineY }, thickness: 0.75, color: rgb(0, 0, 0) });
+      cursor.page.drawLine({ start: { x: MARGIN + CONTENT_W / 2 + 20, y: lineY }, end: { x: PAGE_W - MARGIN, y: lineY }, thickness: 0.75, color: rgb(0, 0, 0) });
+      // Antippbares Feld direkt auf der Linie, damit Datum/Ort auch am Tablet/Handy
+      // eingetippt statt nur handschriftlich ergänzt werden können.
+      drawInteractiveTextField(cursor, MARGIN, lineY + 13, colW, 13);
+      cursor.page.drawText("Datum, Ort", { x: MARGIN, y: lineY - 12, size: FONT_SIZE, font: fonts.bold });
+      cursor.page.drawText("Unterschrift", { x: MARGIN + CONTENT_W / 2 + 20, y: lineY - 12, size: FONT_SIZE, font: fonts.bold });
+      cursor.y = lineY - 12;
+    }
   }
 
   // 16. Fußzeile auf jeder Seite
