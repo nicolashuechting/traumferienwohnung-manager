@@ -124,6 +124,10 @@ interface BookingModalProps {
   booking?: Booking | null;
   prefill?: { propertyId: string; checkIn: string; checkOut: string };
   onClose: () => void;
+  // "modal": zentriertes Overlay mit Backdrop (Kalender, Buchungsliste) — Standard.
+  // "embedded": nur die Karte selbst, füllt den Elterncontainer (rechte Spalte der
+  // Benachrichtigungsseite) — dieselbe Logik/JSX, kein zweiter Ort für Statuslogik.
+  variant?: "modal" | "embedded";
 }
 
 const EMPTY_FORM: BookingFormData = {
@@ -399,7 +403,7 @@ function ViewRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export function BookingModal({ open, booking, prefill, onClose }: BookingModalProps) {
+export function BookingModal({ open, booking, prefill, onClose, variant = "modal" }: BookingModalProps) {
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [current, setCurrent] = useState<Booking | null>(booking ?? null);
   const [form, setForm] = useState<BookingFormData>(EMPTY_FORM);
@@ -681,11 +685,11 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
       if (showSaveDiff) { setShowSaveDiff(false); setPdfAfterSave(false); return; }
       if (showHistory) { setShowHistory(false); return; }
       if (mode === "edit") { attemptCancel(); return; }
-      onClose();
+      if (variant === "modal") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, mode, showSaveDiff, showHistory, restoreEntry, pendingCollision, attemptCancel, onClose]);
+  }, [open, mode, showSaveDiff, showHistory, restoreEntry, pendingCollision, attemptCancel, onClose, variant]);
 
   if (!open) return null;
 
@@ -1015,10 +1019,10 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   const headerNumber = (mode === "edit" ? form.booking_number : current?.booking_number) || "";
   const persons = current ? current.adults + current.children : 0;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className={`relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col
-        ${mode === "edit" ? "ring-2 ring-blue-400" : ""}`}>
+  const card = (
+      <div className={variant === "modal"
+        ? `relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col ${mode === "edit" ? "ring-2 ring-blue-400" : ""}`
+        : `relative bg-white w-full h-full flex flex-col ${mode === "edit" ? "ring-2 ring-blue-400" : ""}`}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -1079,9 +1083,11 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
                 </button>
               </>
             )}
-            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg transition">
-              <X className="w-5 h-5" />
-            </button>
+            {variant === "modal" && (
+              <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg transition">
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1687,6 +1693,15 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
           </div>
         )}
       </div>
+  );
+
+  return (
+    <>
+      {variant === "modal" ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          {card}
+        </div>
+      ) : card}
 
       {notifyPrompt && (
         <NotifyDialog
@@ -1699,6 +1714,6 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
           onSkip={handleNotifySkip}
         />
       )}
-    </div>
+    </>
   );
 }

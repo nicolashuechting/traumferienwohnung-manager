@@ -23,8 +23,8 @@ export function Layout() {
   const [open, setOpen] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
   useAutoCompleteBookings();
-  const { notifications } = useNotifications();
-  const notificationCount = notifications.length;
+  const { groups } = useNotifications();
+  const notificationCount = groups.length;
 
   return (
     <div className="flex h-screen bg-gray-50">

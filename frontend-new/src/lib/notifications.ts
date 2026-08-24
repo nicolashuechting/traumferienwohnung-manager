@@ -158,3 +158,99 @@ export function computeNotifications(
   });
   return result;
 }
+
+// ── Regel-Priorität für die Hauptdiagnose einer Buchung ────────────────────────
+// Niedrigere Zahl = ursächlicher/aussagekräftiger. anreise_bald_unfertig ist bewusst
+// immer letzte Stelle: es ist nur eine Eskalationsstufe/Verstärkung eines der anderen
+// Probleme (die Anreise rückt näher), nie selbst die eigentliche Ursache. Die übrigen
+// fünf Regeln folgen grob dem natürlichen Buchungsablauf (anfrage → reserviert →
+// bestätigt/vertrag_offen → zahlung_offen) — je früher im Ablauf das Problem hängt,
+// desto ursächlicher ist es für alles, was danach (scheinbar) noch dranhängt.
+export const RULE_PRIORITY: Record<NotificationRuleKey, number> = {
+  anfrage_offen: 1,
+  reservierung_offen: 2,
+  vertrag_offen: 3,
+  zahlung_offen: 4,
+  preis_fehlt: 5,
+  anreise_bald_unfertig: 6,
+};
+
+export const RULE_DIAGNOSIS: Record<NotificationRuleKey, string> = {
+  anfrage_offen: "Diese Anfrage wurde nie beantwortet.",
+  reservierung_offen: "Die Reservierung wartet noch auf eine Rückmeldung des Gasts.",
+  vertrag_offen: "Der Vertrag wurde verschickt, ist aber noch nicht unterschrieben zurück.",
+  zahlung_offen: "Die Zahlung für diese Buchung fehlt noch.",
+  preis_fehlt: "Für diese Buchung wurde noch kein Preis hinterlegt.",
+  anreise_bald_unfertig: "Die Anreise rückt näher, aber die Buchung ist noch nicht abgeschlossen.",
+};
+
+export const RULE_RECOMMENDATION: Record<NotificationRuleKey, string> = {
+  anfrage_offen: "Jetzt antworten oder die Anfrage abschließen, falls sie erledigt ist.",
+  reservierung_offen: "Beim Gast nachfragen, ob noch Interesse an der Buchung besteht.",
+  vertrag_offen: "Beim Gast nachfassen, ob der Vertrag unterschrieben zurückkommt.",
+  zahlung_offen: "Zahlungseingang prüfen oder den Gast an die Zahlung erinnern.",
+  preis_fehlt: "Preis eintragen, damit die Buchung vollständig ist.",
+  anreise_bald_unfertig: "Prüfen, was vor der Anreise noch erledigt werden muss.",
+};
+
+// Eine Zeile pro Buchung statt pro Regel: mehrere gleichzeitig zutreffende Regeln
+// für dieselbe Buchung werden zu einer Gruppe zusammengefasst. `primary` ist die laut
+// RULE_PRIORITY ursächlichste Regel (nicht die zufällig zuerst gefundene) und liefert
+// die Hauptdiagnose; `others` sind die übrigen, als Zusatzpunkte gezeigten Regeln. Die
+// Dringlichkeit der Gruppe richtet sich nach der dringendsten zutreffenden Regel, nicht
+// nur nach der Hauptdiagnose.
+export interface BookingNotificationGroup {
+  bookingId: string;
+  primary: AppNotification;
+  others: AppNotification[];
+  urgency: NotificationUrgency;
+  sortValue: number;
+}
+
+export function groupNotificationsByBooking(notifications: AppNotification[]): BookingNotificationGroup[] {
+  const byBooking = new Map<string, AppNotification[]>();
+  for (const n of notifications) {
+    const list = byBooking.get(n.bookingId);
+    if (list) list.push(n);
+    else byBooking.set(n.bookingId, [n]);
+  }
+
+  const groups: BookingNotificationGroup[] = [];
+  for (const [bookingId, list] of byBooking) {
+    const sorted = [...list].sort((a, b) => RULE_PRIORITY[a.ruleKey] - RULE_PRIORITY[b.ruleKey]);
+    groups.push({
+      bookingId,
+      primary: sorted[0],
+      others: sorted.slice(1),
+      urgency: list.some((n) => n.urgency === "overdue") ? "overdue" : "soon",
+      sortValue: Math.max(...list.map((n) => n.sortValue)),
+    });
+  }
+
+  groups.sort((a, b) => {
+    if (a.urgency !== b.urgency) return a.urgency === "overdue" ? -1 : 1;
+    return b.sortValue - a.sortValue;
+  });
+  return groups;
+}
+
+// Kurze, kombinationsabhängige Einordnungshilfen (reiner Text, keine Aktionen) — max. 2,
+// damit die Detailansicht nicht überladen wirkt. `daysUntil` hier bewusst dupliziert statt
+// exportiert: bleibt eine private Detailrechnung dieser Datei, wie auch bei den Regeln oben.
+export function contextualTips(group: BookingNotificationGroup, booking: Booking, settings: NotificationSettings): string[] {
+  const ruleKeys = new Set([group.primary.ruleKey, ...group.others.map((o) => o.ruleKey)]);
+  const days = daysUntil(booking.check_in);
+  const tips: string[] = [];
+
+  if ((ruleKeys.has("anfrage_offen") || ruleKeys.has("reservierung_offen")) && days !== null && days < 0) {
+    tips.push("Diese Buchung kam vermutlich nie zustande — prüfen, ob sie storniert oder gelöscht werden kann.");
+  }
+  if (ruleKeys.has("vertrag_offen") && days !== null && days > settings.anreiseBaldTage) {
+    tips.push("Kurz beim Gast nachfragen, ob noch Interesse an der Buchung besteht.");
+  }
+  if (ruleKeys.has("zahlung_offen") && days !== null && days >= 0 && days <= 3) {
+    tips.push("Die Anreise ist nah — die Zahlung sollte dringend geklärt werden.");
+  }
+
+  return tips.slice(0, 2);
+}

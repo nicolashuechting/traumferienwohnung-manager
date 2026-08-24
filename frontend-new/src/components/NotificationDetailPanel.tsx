@@ -1,188 +1,110 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Clock } from "lucide-react";
-import { properties } from "@/lib/properties";
-import { STATUS_ORDER, statusConfig } from "@/lib/bookingStatus";
-import { confirmStatusTransition, ensureBookingNumberFor } from "@/lib/statusTransition";
-import { diffBooking } from "@/lib/bookingHistory";
-import { useUpdateBooking } from "@/hooks/useBookings";
+import { useState } from "react";
+import { Clock, Mail, Lightbulb } from "lucide-react";
 import { useSetNotificationSnooze } from "@/hooks/useNotificationSnoozes";
-import { RULE_LABELS, type AppNotification } from "@/lib/notifications";
-import type { Booking, BookingFormData, BookingStatus } from "@/types";
+import { BookingModal } from "@/components/BookingModal";
+import {
+  RULE_LABELS, RULE_DIAGNOSIS, RULE_RECOMMENDATION, contextualTips,
+  type BookingNotificationGroup,
+} from "@/lib/notifications";
+import type { Booking, NotificationSettings } from "@/types";
 
-function fmtDate(iso: string): string {
-  if (!iso) return "–";
-  const [y, m, d] = iso.split("-");
-  return d && m && y ? `${d}.${m}.${y}` : iso;
+// Bewusst großzügig: booking.email/phone sind bereits die bestmöglich aufgelösten
+// Felder (siehe splitContact() in useBookings.ts, contact_info ist nur noch ein
+// Altfeld-Fallback dafür) — hier nur noch eine leichte Formatprüfung, kein Neuraten.
+function isLikelyEmail(s: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
 
 interface Props {
-  notification: AppNotification;
+  group: BookingNotificationGroup;
   booking: Booking;
-  otherNotifications: AppNotification[]; // andere Regeln, die für dieselbe Buchung gerade zutreffen
   isViewer: boolean;
-  existingNumbers: Set<string>;
-  onOpenFull: () => void;
+  settings: NotificationSettings;
 }
 
-export function NotificationDetailPanel({ notification, booking, otherNotifications, isViewer, existingNumbers, onOpenFull }: Props) {
-  const update = useUpdateBooking();
+export function NotificationDetailPanel({ group, booking, isViewer, settings }: Props) {
   const snooze = useSetNotificationSnooze();
-  const [priceInput, setPriceInput] = useState(String(booking.price || ""));
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    setPriceInput(String(booking.price || ""));
-    setError("");
-  }, [booking.id, booking.price]);
+  const { primary, others } = group;
+  const tips = contextualTips(group, booking, settings);
+  const email = booking.email.trim();
+  const hasEmail = isLikelyEmail(email);
 
-  const prop = properties.find((p) => p.id === booking.property_id);
-  const persons = booking.adults + booking.children;
-  const busy = update.isPending || snooze.isPending;
-
-  const handleStatusChange = async (s: BookingStatus) => {
-    if (isViewer || s === booking.status) return;
-    if (!confirmStatusTransition(booking.status, s)) return;
-    const booking_number = ensureBookingNumberFor(booking.booking_number, booking.property_id, booking.check_in, s, existingNumbers);
-    const data: Partial<BookingFormData> = { status: s, booking_number };
-    setError("");
-    try {
-      await update.mutateAsync({ id: booking.id, data, history: { changes: diffBooking(booking, data) } });
-    } catch (e) { setError((e as Error).message); }
-  };
-
-  const handleMarkPaid = async () => {
-    if (isViewer) return;
-    const data: Partial<BookingFormData> = { is_paid: true };
-    setError("");
-    try {
-      await update.mutateAsync({ id: booking.id, data, history: { changes: diffBooking(booking, data) } });
-    } catch (e) { setError((e as Error).message); }
-  };
-
-  const handleSavePrice = async () => {
-    if (isViewer) return;
-    const price = parseFloat(priceInput.replace(",", ".")) || 0;
-    if (price <= 0) { setError("Bitte einen Preis größer 0 eintragen."); return; }
-    const data: Partial<BookingFormData> = { price, priceIsManual: true };
-    setError("");
-    try {
-      await update.mutateAsync({ id: booking.id, data, history: { changes: diffBooking(booking, data) } });
-    } catch (e) { setError((e as Error).message); }
-  };
-
-  const handleSnooze = (days: number) => {
+  // Snoozt alle aktuell zutreffenden Regeln dieser Buchung gemeinsam — bei nur einer
+  // Zeile pro Buchung (statt pro Regel) würde ein Snooze nur der Hauptdiagnose sonst
+  // sofort eine der anderen Regeln als neue Hauptdiagnose nach vorne holen und die
+  // Zeile bliebe unverändert sichtbar, was sich wie ein wirkungsloser Klick anfühlen würde.
+  const handleSnooze = async (days: number) => {
     if (isViewer) return;
     setError("");
-    snooze.mutate(
-      { bookingId: booking.id, ruleKey: notification.ruleKey, days },
-      { onError: (e) => setError((e as Error).message) },
-    );
+    const ruleKeys = [primary.ruleKey, ...others.map((o) => o.ruleKey)];
+    try {
+      await Promise.all(ruleKeys.map((ruleKey) => snooze.mutateAsync({ bookingId: booking.id, ruleKey, days })));
+    } catch (e) { setError((e as Error).message); }
   };
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto p-6 space-y-5">
-      {/* Kopf: Gast, Wohnung, Zeitraum, Status */}
-      <div>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="text-lg font-bold text-gray-900">{booking.guest_name || "Unbekannter Gast"}</h3>
-          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${statusConfig(booking.status).badgeClass}`}>
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusConfig(booking.status).dotColor }} />
-            {statusConfig(booking.status).label}
-          </span>
-        </div>
-        <p className="text-sm text-gray-500 mt-1">
-          {prop?.name ?? booking.property_id} · {fmtDate(booking.check_in)} – {fmtDate(booking.check_out)} · {persons} Pers.
-          {booking.booking_number && <> · <span className="font-mono">{booking.booking_number}</span></>}
-        </p>
-      </div>
-
-      {/* Grund */}
-      <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-        <p className="text-sm text-amber-800">{notification.reason}</p>
-        {otherNotifications.length > 0 && (
-          <p className="text-xs text-amber-700 mt-1.5">
-            Betrifft außerdem: {otherNotifications.map((n) => RULE_LABELS[n.ruleKey]).join(", ")}
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="px-6 pt-5 pb-4 space-y-3 border-b border-gray-100 flex-shrink-0 overflow-y-auto max-h-[45%]">
+        {/* Diagnose + Handlungsempfehlung */}
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 space-y-1.5">
+          <p className="text-sm font-semibold text-amber-900">{RULE_DIAGNOSIS[primary.ruleKey]}</p>
+          <p className="text-xs text-amber-700">{primary.reason}</p>
+          <p className="text-sm text-amber-800 pt-0.5">
+            <span className="font-medium">Empfehlung:</span> {RULE_RECOMMENDATION[primary.ruleKey]}
           </p>
-        )}
-      </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-4 py-3">{error}</div>
-      )}
-
-      {isViewer && (
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Nur Ansicht — du kannst hier nichts bearbeiten.
-        </p>
-      )}
-
-      {/* Aktionen */}
-      <div className="space-y-4">
-        <div>
-          <p className="text-sm font-medium text-gray-700 mb-2">Status</p>
-          <div className="flex flex-wrap gap-1.5">
-            {STATUS_ORDER.map((s) => {
-              const cfg = statusConfig(s);
-              const active = booking.status === s;
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  disabled={isViewer || busy}
-                  onClick={() => handleStatusChange(s)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition disabled:opacity-50
-                    ${active ? cfg.badgeClass : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"}`}
-                >
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg.dotColor }} />
-                  {cfg.label}
-                </button>
-              );
-            })}
-          </div>
+          {others.length > 0 && (
+            <ul className="pt-1.5 mt-1 border-t border-amber-200/70 space-y-0.5">
+              {others.map((n) => (
+                <li key={n.id} className="text-xs text-amber-700">
+                  + {RULE_LABELS[n.ruleKey]}: {n.reason}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
-        {notification.ruleKey === "zahlung_offen" && !booking.is_paid && (
-          <button
-            type="button"
-            disabled={isViewer || busy}
-            onClick={handleMarkPaid}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition disabled:opacity-50"
-          >
-            <CheckCircle2 className="w-4 h-4" /> Als bezahlt markieren
-          </button>
+        {/* Kontakt */}
+        {hasEmail && (
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={`mailto:${email}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"
+            >
+              <Mail className="w-3.5 h-3.5" /> E-Mail schreiben
+            </a>
+          </div>
         )}
 
-        {notification.ruleKey === "preis_fehlt" && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Preis (€)</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number" min={0} step="0.01" disabled={isViewer || busy}
-                value={priceInput} onChange={(e) => setPriceInput(e.target.value)}
-                className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50 disabled:bg-gray-100"
-              />
-              <button
-                type="button" disabled={isViewer || busy} onClick={handleSavePrice}
-                className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
-              >
-                Speichern
-              </button>
-            </div>
+        {/* Tipps */}
+        {tips.length > 0 && (
+          <div className="space-y-1">
+            {tips.map((t, i) => (
+              <p key={i} className="flex items-start gap-1.5 text-xs text-gray-500">
+                <Lightbulb className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-gray-400" />
+                <span>{t}</span>
+              </p>
+            ))}
           </div>
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-4 py-3">{error}</div>
         )}
 
         {!isViewer && (
-          <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+          <div className="flex items-center gap-2 pt-1">
             <Clock className="w-4 h-4 text-gray-400 flex-shrink-0" />
             <span className="text-xs text-gray-500 mr-1">Später erinnern:</span>
             <button
-              type="button" disabled={busy} onClick={() => handleSnooze(3)}
+              type="button" disabled={snooze.isPending} onClick={() => handleSnooze(3)}
               className="px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition disabled:opacity-50"
             >
               In 3 Tagen
             </button>
             <button
-              type="button" disabled={busy} onClick={() => handleSnooze(7)}
+              type="button" disabled={snooze.isPending} onClick={() => handleSnooze(7)}
               className="px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition disabled:opacity-50"
             >
               In 7 Tagen
@@ -191,13 +113,11 @@ export function NotificationDetailPanel({ notification, booking, otherNotificati
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={onOpenFull}
-        className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 pt-2"
-      >
-        <ExternalLink className="w-3.5 h-3.5" /> Vollständig bearbeiten
-      </button>
+      {/* Dieselbe Bearbeitungsansicht wie beim Klick auf einen Kalenderbalken — nur
+          eingebettet statt als zentriertes Overlay (siehe BookingModal variant="embedded"). */}
+      <div className="flex-1 min-h-0">
+        <BookingModal variant="embedded" open booking={booking} onClose={() => {}} />
+      </div>
     </div>
   );
 }
