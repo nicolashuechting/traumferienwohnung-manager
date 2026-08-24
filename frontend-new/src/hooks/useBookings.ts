@@ -37,6 +37,20 @@ function resolveStatus(raw: Record<string, unknown>): BookingStatus {
   return raw.is_paid || raw.paid ? "bezahlt" : "anfrage";
 }
 
+// created_at/updated_at werden per serverTimestamp() geschrieben (Firestore-Timestamp-
+// Objekt), aber als string getypt — dieselbe Unschärfe würde status_changed_at beim
+// Fallback auf diese Felder erben. Hier bewusst sauber auf ISO-String normalisiert,
+// weil die Benachrichtigungs-Regeln (src/lib/notifications.ts) daraus echte
+// Tagesdifferenzen berechnen müssen.
+function toISOStringSafe(v: unknown): string {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && v !== null && "toDate" in v && typeof (v as { toDate: unknown }).toDate === "function") {
+    return (v as { toDate: () => Date }).toDate().toISOString();
+  }
+  return "";
+}
+
 // Maps old apartment name (e.g. "Upstalsboom 2") to new property id (e.g. "ups-2")
 function resolvePropertyId(raw: Record<string, unknown>): string {
   if (raw.property_id && typeof raw.property_id === "string") return raw.property_id;
@@ -115,6 +129,11 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
     userId:       (raw.userId ?? "") as string,
     created_at:   (raw.created_at   ?? raw.createdAt  ?? "") as string,
     updated_at:   (raw.updated_at   ?? raw.updatedAt  ?? "") as string,
+    // Altbestand ohne eigenes Feld: bestmöglicher Fallback, aber NICHT rückwirkend in
+    // der DB nachpflegen (kein Massen-Update nötig, siehe status_changed_at-Stamping
+    // in useCreateBooking/useUpdateBooking für alle künftigen Statusänderungen).
+    status_changed_at: (typeof raw.status_changed_at === "string" ? raw.status_changed_at : "")
+      || toISOStringSafe(raw.updated_at) || toISOStringSafe(raw.created_at) || "",
     deletedAt:    (raw.deletedAt ?? null) as string | null,
   };
 }
@@ -155,6 +174,7 @@ export function useCreateBooking() {
     mutationFn: async (data: BookingFormData) => {
       const ref = await addDoc(collection(db, "bookings"), {
         ...data,
+        status_changed_at: new Date().toISOString(),
         deletedAt: null,
         userId: auth.currentUser!.uid,
         created_at: serverTimestamp(),
@@ -181,8 +201,14 @@ export function useUpdateBooking() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data, history }: UpdateBookingArgs) => {
+      // Zentral statt an jeder einzelnen Aufrufstelle: sobald der Status sich laut dem
+      // mitgelieferten Diff wirklich ändert, wird status_changed_at neu gestempelt —
+      // erfasst dadurch automatisch jede Stelle, die update.mutate mit einem Status-Diff
+      // aufruft (BookingModal, Drag&Drop-Statuswechsel falls vorhanden, Auto-Abschluss, ...).
+      const statusChanged = history?.changes.some((c) => c.field === "status") ?? false;
       await updateDoc(doc(db, "bookings", id), {
         ...data,
+        ...(statusChanged ? { status_changed_at: new Date().toISOString() } : {}),
         updated_at: serverTimestamp(),
       });
       if (history) await writeHistory(id, history.changes, history.note);

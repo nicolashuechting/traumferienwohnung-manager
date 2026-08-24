@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Trash2, RefreshCw, CheckCircle, AlertCircle, Link, Download, Euro, ChevronRight, Home } from "lucide-react";
+import { Plus, Trash2, RefreshCw, CheckCircle, AlertCircle, Link, Download, Euro, ChevronRight, Home, Bell, Save } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
 import { properties } from "@/lib/properties";
 import {
   useIcalFeeds, useCreateIcalFeed,
@@ -9,6 +10,9 @@ import {
 } from "@/hooks/useIcalFeeds";
 import type { SyncResult } from "@/hooks/useIcalFeeds";
 import { downloadBackup } from "@/lib/backupExport";
+import { useNotificationSettings, useUpdateNotificationSettings } from "@/hooks/useNotificationSettings";
+import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
+import type { NotificationSettings } from "@/types";
 
 function fmtSync(iso: string) {
   if (!iso) return "Noch nie";
@@ -25,6 +29,7 @@ const CHANNEL_PRESETS = [
 export function Settings() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isViewer } = useUserRole();
   const { data: feeds = [] } = useIcalFeeds();
   const createFeed  = useCreateIcalFeed();
   const deleteFeed  = useDeleteIcalFeed();
@@ -39,6 +44,18 @@ export function Settings() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
+
+  const { data: notifSettings = DEFAULT_NOTIFICATION_SETTINGS } = useNotificationSettings();
+  const updateNotifSettings = useUpdateNotificationSettings();
+  const [notifDraft, setNotifDraft] = useState<NotificationSettings>(notifSettings);
+  const [notifSaved, setNotifSaved] = useState(false);
+  useEffect(() => setNotifDraft(notifSettings), [notifSettings]);
+
+  const handleSaveNotifSettings = async () => {
+    await updateNotifSettings.mutateAsync(notifDraft);
+    setNotifSaved(true);
+    setTimeout(() => setNotifSaved(false), 2000);
+  };
 
   async function handleExport() {
     setExporting(true);
@@ -105,6 +122,68 @@ export function Settings() {
         </div>
         <ChevronRight className="w-4 h-4 text-gray-400" />
       </button>
+
+      {/* ── Benachrichtigungs-Schwellenwerte ── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+            <Bell className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Benachrichtigungen</p>
+            <p className="text-xs text-gray-500">Ab wie vielen Tagen eine Buchung als überfällig/bald fällig markiert wird</p>
+          </div>
+        </div>
+        {isViewer && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+            Nur Ansicht — du kannst diese Einstellungen nicht bearbeiten.
+          </p>
+        )}
+        <fieldset disabled={isViewer} className="grid grid-cols-2 gap-4 mt-4 m-0 min-w-0">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Vertrag nicht zurück (Tage)</label>
+            <input type="number" min={1} value={notifDraft.vertragOffenTage}
+              onChange={(e) => setNotifDraft((d) => ({ ...d, vertragOffenTage: parseInt(e.target.value) || 1 }))}
+              className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Zahlung fehlt vor Anreise (Tage)</label>
+            <input type="number" min={1} value={notifDraft.zahlungOffenTage}
+              onChange={(e) => setNotifDraft((d) => ({ ...d, zahlungOffenTage: parseInt(e.target.value) || 1 }))}
+              className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Reservierung unbestätigt (Tage)</label>
+            <input type="number" min={1} value={notifDraft.reservierungOffenTage}
+              onChange={(e) => setNotifDraft((d) => ({ ...d, reservierungOffenTage: parseInt(e.target.value) || 1 }))}
+              className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Anfrage hängt (Tage)</label>
+            <input type="number" min={1} value={notifDraft.anfrageOffenTage}
+              onChange={(e) => setNotifDraft((d) => ({ ...d, anfrageOffenTage: parseInt(e.target.value) || 1 }))}
+              className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Anreise bald, noch unfertig (Tage vorher)</label>
+            <input type="number" min={1} value={notifDraft.anreiseBaldTage}
+              onChange={(e) => setNotifDraft((d) => ({ ...d, anreiseBaldTage: parseInt(e.target.value) || 1 }))}
+              className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+        </fieldset>
+        {!isViewer && (
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={handleSaveNotifSettings}
+              disabled={updateNotifSettings.isPending}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
+            >
+              <Save className="w-4 h-4" /> {updateNotifSettings.isPending ? "Speichert…" : "Speichern"}
+            </button>
+            {notifSaved && <span className="text-sm text-emerald-600 font-medium">Gespeichert ✓</span>}
+          </div>
+        )}
+      </div>
 
       {/* ── Konto ── */}
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">

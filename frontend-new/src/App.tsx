@@ -10,6 +10,7 @@ import { Calendar } from "@/pages/Calendar";
 import { Bookings } from "@/pages/Bookings";
 import { Analytics } from "@/pages/Analytics";
 import { Guests } from "@/pages/Guests";
+import { Notifications } from "@/pages/Notifications";
 import { Settings } from "@/pages/Settings";
 import { PriceSettings } from "@/pages/PriceSettings";
 import { HouseSettingsPage } from "@/pages/HouseSettings";
@@ -52,6 +53,7 @@ function AppRoutes() {
         <Route path="/" element={<Home />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/bookings" element={<Bookings />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/guests" element={<Guests />} />
         <Route path="/trash" element={<Trash />} />

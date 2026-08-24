@@ -10,6 +10,7 @@ import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
 import { useUserRole } from "@/hooks/useUserRole";
 import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
+import { confirmStatusTransition } from "@/lib/statusTransition";
 import { generateConfirmationPdf, resolveLastName } from "@/lib/pdfConfirmation";
 import { splitGuestName } from "@/lib/guestName";
 import {
@@ -156,6 +157,7 @@ const EMPTY_FORM: BookingFormData = {
   price: 0,
   priceIsManual: false,
   cancellationFee: 0,
+  status_changed_at: "", // wird beim tatsächlichen Anlegen in useCreateBooking gesetzt
   channel: "Manuell",
   ical_uid: "",
   notes: "",
@@ -688,7 +690,7 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
   if (!open) return null;
 
   const handleConfirm = () => {
-    window.alert('Buchung wird bestätigt. Jetzt ist der richtige Zeitpunkt, die Buchungsbestätigung per E-Mail zu verschicken. Falls du dafür gerade keine Zeit hast, lass die Buchung lieber auf "Reserviert" stehen.');
+    if (!confirmStatusTransition(form.status, "bestaetigt")) return;
     setForm((prev) => ({ ...prev, status: "bestaetigt", booking_number: ensureNumber({ ...prev, status: "bestaetigt" }) }));
   };
 
@@ -696,21 +698,10 @@ export function BookingModal({ open, booking, prefill, onClose }: BookingModalPr
     setForm((prev) => ({ ...prev, status: "reserviert" }));
   };
 
-  // Status-Pille anklicken: Rückwärtsschritte im Workflow (z.B. reserviert → anfrage)
-  // brauchen eine kurze Bestätigung, Vorwärtsschritte greifen direkt.
+  // Status-Pille anklicken: dieselben Rückfragen/Hinweise wie bei der Schnellaktion
+  // "Buchung bestätigen" (confirmStatusTransition), unabhängig vom gewählten Weg.
   const handleStatusPillClick = (s: BookingStatus) => {
-    const isBackward = STATUS_ORDER.indexOf(s) < STATUS_ORDER.indexOf(form.status);
-    if (isBackward && !window.confirm("Status zurücksetzen?")) return;
-    // Zwischenschritt "Vertrag unterschrieben" übersprungen (von anfrage/reserviert/
-    // bestaetigt direkt auf bezahlt): kurz nachfragen.
-    if (s === "bezahlt" && STATUS_ORDER.indexOf(form.status) < STATUS_ORDER.indexOf("vertrag_unterschrieben") &&
-        !window.confirm("Der Vertrag wurde noch nicht als unterschrieben markiert. Trotzdem als bezahlt markieren?")) return;
-    if (s === "storniert" && form.status !== "storniert") {
-      window.alert('Buchung wird als storniert markiert. Falls laut Stornobedingungen eine Stornogebühr fällig ist, trage sie direkt unten im Feld "Stornogebühren" ein.');
-    }
-    if (s === "bestaetigt" && form.status !== "bestaetigt") {
-      window.alert('Buchung wird bestätigt. Jetzt ist der richtige Zeitpunkt, die Buchungsbestätigung per E-Mail zu verschicken. Falls du dafür gerade keine Zeit hast, lass die Buchung lieber auf "Reserviert" stehen.');
-    }
+    if (!confirmStatusTransition(form.status, s)) return;
     // Buchungsnummer sofort im Formular vorbefüllen (nicht erst beim Speichern), damit sie
     // unabhängig vom gewählten Weg (Schnellaktion "Buchung bestätigen" oder direkter
     // Statuswechsel, auch bei übersprungenen Zwischenschritten) sofort sichtbar ist.

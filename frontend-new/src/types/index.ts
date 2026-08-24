@@ -122,6 +122,7 @@ export interface Booking {
   userId: string;
   created_at: string;
   updated_at: string;
+  status_changed_at: string; // ISO-Zeitstempel, bei jeder Statusänderung aktualisiert (siehe useUpdateBooking/useCreateBooking)
   deletedAt: string | null; // Soft-Delete-Zeitstempel (ISO), null = aktiv
 }
 
@@ -183,4 +184,40 @@ export interface IcalFeed {
   name: string;       // e.g. "Ferienwohnungen.de"
   url: string;        // the .ics URL
   last_synced: string; // ISO timestamp or ""
+}
+
+// ── Benachrichtigungen ───────────────────────────────────────────────────────
+// Keine dauerhaft gespeicherten Benachrichtigungs-Objekte — werden bei jedem
+// Laden live aus dem Buchungszustand abgeleitet (siehe src/lib/notifications.ts).
+export type NotificationRuleKey =
+  | "vertrag_offen"
+  | "zahlung_offen"
+  | "reservierung_offen"
+  | "anfrage_offen"
+  | "anreise_bald_unfertig"
+  | "preis_fehlt";
+
+export type NotificationUrgency = "overdue" | "soon"; // rot / gelb
+
+// Ein Dokument, global für den ganzen Betrieb (analog houseSettings/priceSettings
+// — Geschäftsregeln, keine persönliche Präferenz). Fehlt der Doc/ein Feld, gelten
+// die Default-Werte in src/lib/notifications.ts.
+export interface NotificationSettings {
+  vertragOffenTage: number;      // Default 7
+  zahlungOffenTage: number;      // Default 14
+  reservierungOffenTage: number; // Default 5
+  anfrageOffenTage: number;      // Default 5
+  anreiseBaldTage: number;       // Default 10
+}
+
+// Doc-ID = `${bookingId}_${ruleKey}` — bewusst team-weit geteilt (kein userId im
+// Schlüssel): ein Snooze gilt für alle, damit nicht mehrere Admins dieselbe
+// überfällige Buchung parallel/uneinheitlich abarbeiten.
+export interface NotificationSnooze {
+  id: string;
+  bookingId: string;
+  ruleKey: NotificationRuleKey;
+  snoozedUntil: string; // ISO-Zeitstempel
+  userId: string;       // wer den Snooze gesetzt hat (nur informativ, kein Zugriffsfilter)
+  created_at: string;
 }

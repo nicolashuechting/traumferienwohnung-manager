@@ -132,6 +132,7 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       price:        0,
       priceIsManual: true, // iCal-Importe haben keinen eigenen Preis, nicht automatisch überschreiben
       cancellationFee: 0,
+      status_changed_at: new Date().toISOString(),
       channel:      feed.name,
       ical_uid:     ev.uid,
       notes:        ev.description,
@@ -145,9 +146,10 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       // Update existing (dates or summary may have changed)
       // booking_number, status sowie Kontakt-/Adressdaten NICHT überschreiben — die kommen
       // aus dem iCal-Feed ohnehin immer leer und würden sonst vom Nutzer nachträglich
-      // eingetragene Daten bei jedem Sync wieder auf "" zurücksetzen.
+      // eingetragene Daten bei jedem Sync wieder auf "" zurücksetzen. status_changed_at
+      // gehört zu status dazu — der ändert sich beim Resync ja nicht wirklich.
       const {
-        booking_number: _bn, status: _st,
+        booking_number: _bn, status: _st, status_changed_at: _sca,
         contact_info: _ci, phone: _ph, email: _em,
         street: _st2, houseNumber: _hn, zip: _zip, city: _city, country: _country,
         guest_first_name: _gfn, guest_last_name: _gln,
