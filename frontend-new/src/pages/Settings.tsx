@@ -86,7 +86,8 @@ export function Settings() {
   const anyErrors     = syncResults?.some((r) => r.errors.length > 0) ?? false;
 
   return (
-    <div className="p-6 max-w-3xl space-y-6">
+    <div className="h-full flex flex-col">
+      <div className="flex-1 overflow-y-auto p-6 max-w-3xl space-y-6">
       <h2 className="text-xl font-bold text-gray-900">Einstellungen</h2>
 
       {/* ── Preise ── */}
@@ -380,6 +381,7 @@ export function Settings() {
             })
           )}
         </div>
+      </div>
       </div>
     </div>
   );
