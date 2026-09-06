@@ -85,11 +85,14 @@ export interface Booking {
   booking_number: string; // z.B. "UPS-2026-0001", "" für Altbestand/iCal ohne Nummer
   status: BookingStatus;
   guest_name: string;       // kombiniert, aus Vor-/Nachname abgeleitet — für Anzeige (Kalender, Listen etc.)
+  guest_title: string;      // z.B. "Prof. Dr." — nur im Formular sichtbar, bewusst NICHT Teil von guest_name
+                             // (fließt weder in Listen/Kalenderanzeige noch in die PDF-Bestätigung ein)
   guest_first_name: string;
   guest_last_name: string;  // primäres Feld für Anrede ("Familie {guest_last_name}") — bei Altbestand leer,
                              // dort greift die surname()-Heuristik auf guest_name als Fallback
   contact_info: string; // Altfeld, nur noch lesend als Fallback für phone/email genutzt (siehe normaliseBooking)
-  phone: string;
+  phone: string;  // UI-Label "Mobil" — de facto immer die Handynummer des Gasts
+  landline: string; // UI-Label "Festnetz" — separates, optionales Zweitfeld neben "Mobil"
   email: string;
   street: string;
   houseNumber: string;

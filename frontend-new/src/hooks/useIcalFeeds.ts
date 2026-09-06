@@ -106,10 +106,12 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       booking_number: "", // bei neuen Importen unten gesetzt
       status:       "anfrage",
       guest_name:   ev.summary || "iCal-Buchung",
+      guest_title:  "",
       guest_first_name: "",
       guest_last_name:  "",
       contact_info: "",
       phone:        "",
+      landline:     "",
       email:        "",
       street:       "",
       houseNumber:  "",
@@ -150,9 +152,9 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       // gehört zu status dazu — der ändert sich beim Resync ja nicht wirklich.
       const {
         booking_number: _bn, status: _st, status_changed_at: _sca,
-        contact_info: _ci, phone: _ph, email: _em,
+        contact_info: _ci, phone: _ph, landline: _ll, email: _em,
         street: _st2, houseNumber: _hn, zip: _zip, city: _city, country: _country,
-        guest_first_name: _gfn, guest_last_name: _gln,
+        guest_title: _gt, guest_first_name: _gfn, guest_last_name: _gln,
         ...updatable
       } = bookingData;
       await updateDoc(doc(db, "bookings", existingDocId), {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Clock, Mail, Lightbulb } from "lucide-react";
 import { useSetNotificationSnooze } from "@/hooks/useNotificationSnoozes";
 import { BookingModal } from "@/components/BookingModal";
+import { confirmEmailSend } from "@/lib/emailWarning";
 import {
   RULE_LABELS, RULE_DIAGNOSIS, RULE_RECOMMENDATION, contextualTips,
   type BookingNotificationGroup,
@@ -44,6 +45,11 @@ export function NotificationDetailPanel({ group, booking, isViewer, settings }: 
     } catch (e) { setError((e as Error).message); }
   };
 
+  const handleEmailClick = () => {
+    if (!confirmEmailSend(booking.guest_title)) return;
+    window.open(`mailto:${email}`, "_blank");
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-6 pt-5 pb-4 space-y-3 border-b border-gray-100 flex-shrink-0 overflow-y-auto max-h-[45%]">
@@ -68,12 +74,13 @@ export function NotificationDetailPanel({ group, booking, isViewer, settings }: 
         {/* Kontakt */}
         {hasEmail && (
           <div className="flex flex-wrap gap-2">
-            <a
-              href={`mailto:${email}`}
+            <button
+              type="button"
+              onClick={handleEmailClick}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"
             >
               <Mail className="w-3.5 h-3.5" /> E-Mail schreiben
-            </a>
+            </button>
           </div>
         )}
 

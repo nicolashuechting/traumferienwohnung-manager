@@ -11,6 +11,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
 import { confirmStatusTransition } from "@/lib/statusTransition";
+import { confirmEmailSend } from "@/lib/emailWarning";
 import { generateConfirmationPdf, resolveLastName } from "@/lib/pdfConfirmation";
 import { splitGuestName } from "@/lib/guestName";
 import {
@@ -131,14 +132,20 @@ interface BookingModalProps {
 }
 
 const EMPTY_FORM: BookingFormData = {
-  property_id: "ups-2",
+  // Bewusst leer statt einer festen Wohnung — beim allgemeinen "Neue Buchung"-Button
+  // (ohne Bezug zu einer angeklickten Kalenderzeile) muss die Wohnung aktiv gewählt
+  // werden. Ein Klick auf einen Zeitraum/eine Zeile im Kalender überschreibt dies
+  // weiterhin sofort über `prefill.propertyId`.
+  property_id: "",
   booking_number: "",
   status: "anfrage",
   guest_name: "",
+  guest_title: "",
   guest_first_name: "",
   guest_last_name: "",
   contact_info: "",
   phone: "",
+  landline: "",
   email: "",
   street: "",
   houseNumber: "",
@@ -185,6 +192,43 @@ function fmtDate(iso: string) {
   if (!iso) return "–";
   const [y, m, d] = iso.split("-");
   return `${d}.${m}.${y}`;
+}
+
+// Titel-Auswahl: Dropdown mit gängigen Presets, Freitext nur bei "Sonstiger…" — analog
+// zu FerryPicker oben (manuelle Eingabe nur bei explizitem Umschalter aktiv).
+const TITLE_PRESETS = ["Dr.", "Prof.", "Prof. Dr.", "Dr. Dr."];
+
+function GuestTitleInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [custom, setCustom] = useState(() => !!value && !TITLE_PRESETS.includes(value));
+  const selectValue = custom ? "__custom__" : value;
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Titel</label>
+      <select
+        value={selectValue}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "__custom__") { setCustom(true); }
+          else { setCustom(false); onChange(v); }
+        }}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+      >
+        <option value="">(kein Titel)</option>
+        {TITLE_PRESETS.map((t) => <option key={t} value={t}>{t}</option>)}
+        <option value="__custom__">Sonstiger…</option>
+      </select>
+      {custom && (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Titel eingeben"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mt-2 focus:ring-2 focus:ring-blue-500 outline-none"
+        />
+      )}
+    </div>
+  );
 }
 
 // Ein Alter-Eingabefeld pro Kind, synchron zur Kinderzahl
@@ -768,6 +812,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
 
   const handleEmailPdf = () => {
     if (!current) return;
+    if (!confirmEmailSend(current.guest_title)) return;
     const subject = `Ihre Buchungsbestätigung – ${current.booking_number || ""}`;
     const body =
       `Liebe Familie ${resolveLastName(current)},\n\n` +
@@ -827,6 +872,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   };
 
   const validate = (): boolean => {
+    if (!form.property_id) { setError("Bitte eine Wohnung auswählen."); return false; }
     if (!form.guest_last_name.trim()) { setError("Nachname ist erforderlich."); return false; }
     if (!form.check_in || !form.check_out) { setError("Check-in und Check-out sind erforderlich."); return false; }
     if (form.check_in >= form.check_out) { setError("Check-out muss nach Check-in liegen."); return false; }
@@ -1121,7 +1167,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 </ViewRow>
                 <ViewRow label="Anreise">{fmtDate(current.check_in)}</ViewRow>
                 <ViewRow label="Abreise">{fmtDate(current.check_out)}</ViewRow>
-                <ViewRow label="Telefon">{current.phone || "–"}</ViewRow>
+                <ViewRow label="Mobil">{current.phone || "–"}</ViewRow>
+                {current.landline && <ViewRow label="Festnetz">{current.landline}</ViewRow>}
                 <ViewRow label="E-Mail">{current.email || "–"}</ViewRow>
                 <ViewRow label="Anschrift">
                   {current.street || current.city
@@ -1248,10 +1295,11 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 )}
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-[2fr_1fr_2fr_2fr] gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Wohnung</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Wohnung *</label>
                   <select value={form.property_id} onChange={(e) => set("property_id", e.target.value)} className={inputCls}>
+                    <option value="" disabled>Wohnung wählen…</option>
                     {["Upstalsboom", "Haus Anne"].map((house) => (
                       <optgroup key={house} label={house}>
                         {properties.filter((p) => p.house === house).map((p) => (
@@ -1261,6 +1309,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     ))}
                   </select>
                 </div>
+                <GuestTitleInput value={form.guest_title} onChange={(v) => set("guest_title", v)} />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Vorname</label>
                   <input type="text" value={form.guest_first_name} onChange={(e) => set("guest_first_name", e.target.value)} onBlur={handleGuestNameBlur} placeholder="Max" className={inputCls} />
@@ -1307,8 +1356,12 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Telefon</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mobil</label>
                   <input type="text" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+49 176 2233445" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Festnetz</label>
+                  <input type="text" value={form.landline} onChange={(e) => set("landline", e.target.value)} placeholder="+49 40 12345678" className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
@@ -1326,7 +1379,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm space-y-2">
                   <p className="text-blue-900">
                     ✓ Gast bekannt: <span className="font-semibold">{guestSuggestion.name || "–"}</span>
-                    {guestSuggestion.phone && ` · Tel: ${guestSuggestion.phone}`}
+                    {guestSuggestion.phone && ` · Mobil: ${guestSuggestion.phone}`}
                     {(guestSuggestion.street || guestSuggestion.city) && (
                       <> · {[`${guestSuggestion.street} ${guestSuggestion.houseNumber}`.trim(), `${guestSuggestion.zip} ${guestSuggestion.city}`.trim(), guestSuggestion.country]
                         .filter(Boolean).join(", ")}</>

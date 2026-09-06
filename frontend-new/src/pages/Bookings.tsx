@@ -126,9 +126,15 @@ function DetailRow({ booking, onEdit, onClose }: { booking: Booking; onEdit: () 
             <p className="text-gray-900 font-mono">{booking.booking_number || "–"}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Telefon</p>
+            <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Mobil</p>
             <p className="text-gray-900">{booking.phone || "–"}</p>
           </div>
+          {booking.landline && (
+            <div>
+              <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Festnetz</p>
+              <p className="text-gray-900">{booking.landline}</p>
+            </div>
+          )}
           <div>
             <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">E-Mail</p>
             <p className="text-gray-900">{booking.email || "–"}</p>

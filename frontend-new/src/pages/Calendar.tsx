@@ -47,9 +47,12 @@ export function Calendar() {
     setModalOpen(true);
   };
 
+  // Bewusst immer ohne Vorauswahl — auch in der Einzelwohnungs-Ansicht muss die
+  // Wohnung aktiv gewählt werden. Nur ein Klick auf einen Zeitraum im Kalender
+  // (handleDateRangeSelect) setzt weiterhin automatisch die passende Wohnung.
   const openNew = () => {
     setSelectedBooking(null);
-    setPrefill(viewMode === "single" ? { propertyId: selectedPropertyId, checkIn: "", checkOut: "" } : undefined);
+    setPrefill(undefined);
     setModalOpen(true);
   };
 
