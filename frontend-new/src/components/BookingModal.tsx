@@ -530,6 +530,12 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const priceTriggerKeyOf = (f: BookingFormData) =>
     `${f.property_id}|${f.check_in}|${f.check_out}|${f.adults}|${f.children}|${f.dogCount}`;
   const lastPriceTriggerKey = useRef("");
+  // Eigener Schlüssel nur für die Daten: eine Datumsänderung macht die bisherige
+  // Preisbasis (Nächtezahl/Saison) ungültig, egal ob der Preis zuvor manuell gesetzt
+  // wurde — dafür wird priceIsManual unten gezielt nur bei echter Datumsänderung
+  // ignoriert. Wohnung/Personen/Hund-Änderungen respektieren priceIsManual weiterhin.
+  const dateKeyOf = (f: BookingFormData) => `${f.check_in}|${f.check_out}`;
+  const lastDateKey = useRef("");
 
   useEffect(() => {
     if (!open) return;
@@ -549,6 +555,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       setMode("edit");
     }
     lastPriceTriggerKey.current = priceTriggerKeyOf(loadedForm);
+    lastDateKey.current = dateKeyOf(loadedForm);
     setError("");
     setNumberCopied(false);
     setPdfError("");
@@ -613,16 +620,44 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     };
   }, [open, booking]);
 
-  // Automatische Neuberechnung bei Datum/Wohnung/Personen/Hund-Änderung, aber nur
-  // solange der Preis nicht manuell überschrieben wurde.
+  // Automatische Neuberechnung bei Datum/Wohnung/Personen/Hund-Änderung. Wohnung/
+  // Personen/Hund respektieren weiterhin priceIsManual (unverändert). Eine reine
+  // Datumsänderung dagegen macht die bisherige Preisbasis (Nächtezahl/Saison) ungültig
+  // und wird IMMER neu berechnet, auch wenn der Preis vorher manuell überschrieben war —
+  // sonst bliebe der alte Preis stehen, bis man aktiv auf "Neu berechnen" klickt (auch in
+  // der PDF-Bestätigung sichtbar). Eine aktive Übernachtungspreis-Override-Rate (siehe
+  // PriceSection) wird dabei auf die neue Nächteliste übertragen statt verworfen.
   useEffect(() => {
     const key = priceTriggerKeyOf(form);
     if (key === lastPriceTriggerKey.current) return;
     lastPriceTriggerKey.current = key;
-    if (form.priceIsManual || !autoResult) return;
+    if (!autoResult) return;
+
+    const dateKey = dateKeyOf(form);
+    const datesChanged = dateKey !== lastDateKey.current;
+    lastDateKey.current = dateKey;
+
+    if (form.priceIsManual && !datesChanged) return;
+
+    const overrideNight = form.priceBreakdown?.nights?.find((n) => n.originalPrice !== undefined);
+    if (overrideNight) {
+      const rate = overrideNight.price;
+      const nights = autoResult.nights.map((n) => ({ ...n, price: rate, originalPrice: n.price }));
+      const extraFeesTotal = autoResult.extraFees.reduce((s, f) => s + f.amount, 0);
+      const total = rate * nights.length + autoResult.cleaningFee + extraFeesTotal + autoResult.dogFee;
+      setForm((prev) => ({
+        ...prev,
+        price: total,
+        priceIsManual: true,
+        priceBreakdown: { nights, cleaningFee: autoResult.cleaningFee, extraFees: autoResult.extraFees, dogFee: autoResult.dogFee },
+      }));
+      return;
+    }
+
     setForm((prev) => ({
       ...prev,
       price: autoResult.total,
+      priceIsManual: false,
       priceBreakdown: {
         nights: autoResult.nights,
         cleaningFee: autoResult.cleaningFee,
