@@ -4,6 +4,7 @@ import {
   type DragStartEvent, type DragMoveEvent, type DragEndEvent,
 } from "@dnd-kit/core";
 // DragOverlay entfernt — Live-Vorschau erfolgt direkt im Raster über previewDates-State
+import { Star } from "lucide-react";
 import { statusConfig, CONFIRMED_STATUSES } from "@/lib/bookingStatus";
 import { useUpdateBooking } from "@/hooks/useBookings";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -50,6 +51,7 @@ interface SingleCalendarViewProps {
   bookings: Booking[];
   onBookingClick: (booking: Booking) => void;
   onDateRangeSelect: (propertyId: string, start: Date, end: Date) => void;
+  isStammgast: (booking: Booking) => boolean;
 }
 
 export interface SingleCalendarViewHandle {
@@ -212,9 +214,10 @@ interface MonthBarProps {
   nameW: number;
   isActiveDrag: boolean;    // diese Buchung wird gerade gezogen → abdunkeln
   isAnyDragActive: boolean; // irgendein Drag läuft → pointer-events deaktivieren
+  isStammgast: boolean;
   onClickBar: (b: Booking) => void;
 }
-function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, nameW, isActiveDrag, isAnyDragActive, onClickBar }: MonthBarProps) {
+function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, nameW, isActiveDrag, isAnyDragActive, isStammgast, onClickBar }: MonthBarProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: dragId,
     data: { booking: bar.booking, mode: "move" as MonthDragMode },
@@ -277,6 +280,7 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
         + (isConflict ? "\n⚠ Überschneidung" : "")}
     >
       {bar.showName && isConflict && <span className="flex-shrink-0 text-[10px]">⚠</span>}
+      {bar.showName && nameW >= MIN_NAME_W && isStammgast && <Star className="w-2.5 h-2.5 flex-shrink-0 fill-white" />}
       {bar.showName && nameW >= MIN_NAME_W && (
         <span className="truncate min-w-0">{bar.booking.guest_name}</span>
       )}
@@ -332,6 +336,7 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
   bookings,
   onBookingClick,
   onDateRangeSelect,
+  isStammgast,
 }, ref) {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [containerWidth, setContainerWidth] = useState(960);
@@ -720,6 +725,7 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
                             nameW={barWidth}
                             isActiveDrag={isActiveDrag}
                             isAnyDragActive={isAnyDragActive}
+                            isStammgast={isStammgast(bar.booking)}
                             onClickBar={handleBarClick}
                           />
                           {showStartHandle && (

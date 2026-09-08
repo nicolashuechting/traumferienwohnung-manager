@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Clock, Mail, Lightbulb } from "lucide-react";
+import { Clock, Mail, Lightbulb, Star } from "lucide-react";
 import { useSetNotificationSnooze } from "@/hooks/useNotificationSnoozes";
 import { BookingModal } from "@/components/BookingModal";
 import { confirmEmailSend } from "@/lib/emailWarning";
@@ -21,9 +21,10 @@ interface Props {
   booking: Booking;
   isViewer: boolean;
   settings: NotificationSettings;
+  isStammgast: boolean;
 }
 
-export function NotificationDetailPanel({ group, booking, isViewer, settings }: Props) {
+export function NotificationDetailPanel({ group, booking, isViewer, settings, isStammgast }: Props) {
   const snooze = useSetNotificationSnooze();
   const [error, setError] = useState("");
 
@@ -55,7 +56,14 @@ export function NotificationDetailPanel({ group, booking, isViewer, settings }: 
       <div className="px-6 pt-5 pb-4 space-y-3 border-b border-gray-100 flex-shrink-0 overflow-y-auto max-h-[45%]">
         {/* Diagnose + Handlungsempfehlung */}
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 space-y-1.5">
-          <p className="text-sm font-semibold text-amber-900">{RULE_DIAGNOSIS[primary.ruleKey]}</p>
+          <p className="text-sm font-semibold text-amber-900 flex items-center gap-1.5">
+            {RULE_DIAGNOSIS[primary.ruleKey]}
+            {isStammgast && (
+              <span title="Stammgast" className="flex-shrink-0">
+                <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+              </span>
+            )}
+          </p>
           <p className="text-xs text-amber-700">{primary.reason}</p>
           <p className="text-sm text-amber-800 pt-0.5">
             <span className="font-medium">Empfehlung:</span> {RULE_RECOMMENDATION[primary.ruleKey]}

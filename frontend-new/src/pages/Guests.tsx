@@ -7,7 +7,7 @@ import { BookingModal } from "@/components/BookingModal";
 import { GuestEditModal } from "@/components/GuestEditModal";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
-import { splitGuestName } from "@/lib/guestName";
+import { splitGuestName, guestKey } from "@/lib/guestName";
 import type { Booking } from "@/types";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -25,15 +25,6 @@ function propName(id: string) {
   return properties.find((p) => p.id === id)?.name ?? id;
 }
 
-/** Deduplizierungs-Key: E-Mail oder Telefon wenn vorhanden, sonst Name (lowercase) */
-function guestKey(email: string, phone: string, name: string): string {
-  const e = (email ?? "").trim();
-  if (e) return e.toLowerCase();
-  const p = (phone ?? "").trim();
-  if (p) return p.toLowerCase();
-  return `__name__${name.toLowerCase().trim()}`;
-}
-
 interface GuestRecord {
   key: string;
   name: string;
@@ -48,6 +39,7 @@ interface GuestRecord {
   country: string;
   personNotes: string;
   marketingConsent: boolean;
+  isRegularGuest: boolean; // manuell gesetzt — siehe useGuestStats/GuestEditModal
   totalBookings: number;
   lastStay: string; // ISO
   apartments: Set<string>;
@@ -103,7 +95,7 @@ function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking
   const { isViewer } = useUserRole();
   const softDelete = useSoftDeleteBooking();
   const sorted = [...g.bookingList].sort((a, b) => b.check_in.localeCompare(a.check_in));
-  const isReturning = g.totalBookings >= 2;
+  const isReturning = g.totalBookings >= 2 || g.isRegularGuest;
   const numbers = sorted.map((b) => b.booking_number).filter(Boolean);
 
   async function handleDeleteGuest(e: React.MouseEvent) {
@@ -268,6 +260,7 @@ export function Guests() {
           country: profile?.country ?? "",
           personNotes: profile?.personNotes ?? "",
           marketingConsent: profile?.marketingConsent ?? false,
+          isRegularGuest: profile?.isRegularGuest ?? false,
           totalBookings: 0,
           lastStay: b.check_in,
           apartments: new Set(),
@@ -318,9 +311,9 @@ export function Guests() {
             <h2 className="text-xl font-bold text-gray-900">Gäste</h2>
             <p className="text-sm text-gray-500 mt-0.5">
               {filtered.length} {search ? "gefunden" : "verschiedene Gäste"}
-              {guests.filter((g) => g.totalBookings >= 2).length > 0 && !search && (
+              {guests.filter((g) => g.totalBookings >= 2 || g.isRegularGuest).length > 0 && !search && (
                 <span className="ml-2 text-amber-600 font-medium">
-                  · {guests.filter((g) => g.totalBookings >= 2).length} Stammgäste
+                  · {guests.filter((g) => g.totalBookings >= 2 || g.isRegularGuest).length} Stammgäste
                 </span>
               )}
             </p>

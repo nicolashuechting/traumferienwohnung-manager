@@ -21,6 +21,7 @@ async function fetchGuests(): Promise<Guest[]> {
       country: String(raw.country ?? ""),
       personNotes: String(raw.personNotes ?? ""),
       marketingConsent: Boolean(raw.marketingConsent),
+      isRegularGuest: Boolean(raw.isRegularGuest),
       updated_at: String(raw.updated_at ?? ""),
     };
   });
@@ -58,11 +59,12 @@ export async function upsertGuestFromBooking(data: Partial<BookingFormData>): Pr
   }
 }
 
-// Personennotizen/Werbemail-Einwilligung sind rein personenbezogen (nicht an eine
-// einzelne Buchung gebunden) — werden separat aus dem Buchungsformular heraus gepflegt.
+// Personennotizen/Werbemail-Einwilligung/Stammgast-Status sind rein personenbezogen
+// (nicht an eine einzelne Buchung gebunden) — werden separat aus dem Buchungsformular
+// heraus gepflegt.
 export async function upsertGuestFields(
   email: string,
-  fields: { personNotes: string; marketingConsent: boolean },
+  fields: { personNotes: string; marketingConsent: boolean; isRegularGuest: boolean },
 ): Promise<void> {
   const key = email.trim().toLowerCase();
   if (!key) return;
@@ -93,6 +95,7 @@ export interface GuestEditFields {
   country: string;
   personNotes: string;
   marketingConsent: boolean;
+  isRegularGuest: boolean;
 }
 
 export async function updateGuestAndBookings(
@@ -120,6 +123,7 @@ export async function updateGuestAndBookings(
       country: fields.country,
       personNotes: fields.personNotes,
       marketingConsent: fields.marketingConsent,
+      isRegularGuest: fields.isRegularGuest,
       updated_at: serverTimestamp(),
     },
     { merge: true },

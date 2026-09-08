@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw, Mail } from "lucide-react";
+import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw, Mail, Star } from "lucide-react";
 import { properties } from "@/lib/properties";
 import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings, useTrashedBookings } from "@/hooks/useBookings";
 import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
+import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStatus";
 import { generateBookingNumber } from "@/lib/bookingNumber";
@@ -468,6 +469,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const [nameCollisionHint, setNameCollisionHint] = useState<string | null>(null);
   const [personNotes, setPersonNotes] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
+  const [isRegularGuest, setIsRegularGuest] = useState(false);
   const [ownConfirmation, setOwnConfirmation] = useState<StoredConfirmation | null>(null);
   const [ownUploading, setOwnUploading] = useState(false);
   const [ownUploadError, setOwnUploadError] = useState("");
@@ -498,6 +500,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const { data: priceSettings = [] } = usePriceSettings();
   const { data: houseSettings = [] } = useHouseSettings();
   const { isViewer } = useUserRole();
+  const { isStammgast } = useGuestStats();
   const { data: guests = [] } = useGuests();
   const qc = useQueryClient();
   const create = useCreateBooking();
@@ -568,6 +571,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setNameCollisionHint(null);
     setPersonNotes("");
     setMarketingConsent(false);
+    setIsRegularGuest(false);
     setOwnConfirmation(null);
     setOwnUploadError("");
     setSignedConfirmation(null);
@@ -581,8 +585,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
 
-  // Personennotizen/Werbemail-Einwilligung sind Gast-Stammdaten, nicht Teil der
-  // Buchung selbst — bei bestehenden Buchungen aus dem passenden Gast-Datensatz laden.
+  // Personennotizen/Werbemail-Einwilligung/Stammgast-Status sind Gast-Stammdaten, nicht
+  // Teil der Buchung selbst — bei bestehenden Buchungen aus dem passenden Gast-Datensatz laden.
   useEffect(() => {
     if (!open || !booking || !booking.email) return;
     const email = booking.email.trim().toLowerCase();
@@ -590,6 +594,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     if (match) {
       setPersonNotes(match.personNotes);
       setMarketingConsent(match.marketingConsent);
+      setIsRegularGuest(match.isRegularGuest);
     }
   }, [open, booking, guests]);
 
@@ -716,6 +721,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     });
     if (mode === "replace" || !personNotes) setPersonNotes(guestSuggestion.personNotes);
     setMarketingConsent(guestSuggestion.marketingConsent);
+    setIsRegularGuest(guestSuggestion.isRegularGuest);
     setGuestSuggestion(null);
   };
 
@@ -973,7 +979,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         try {
           await create.mutateAsync(dataToSave);
           if (dataToSave.email) {
-            await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent });
+            await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent, isRegularGuest });
             qc.invalidateQueries({ queryKey: ["guests"] });
           }
           onClose();
@@ -988,7 +994,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       // Personennotizen/Einwilligung können sich geändert haben, auch wenn sich sonst
       // nichts an der Buchung geändert hat — die zählen nicht zum Buchungs-Diff.
       if (dataToSave.email) {
-        await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent });
+        await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent, isRegularGuest });
         qc.invalidateQueries({ queryKey: ["guests"] });
       }
       setMode("view");
@@ -1036,7 +1042,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       try {
         await update.mutateAsync({ id: current.id, data, history: { changes } });
         if (data.email) {
-          await upsertGuestFields(data.email, { personNotes, marketingConsent });
+          await upsertGuestFields(data.email, { personNotes, marketingConsent, isRegularGuest });
           qc.invalidateQueries({ queryKey: ["guests"] });
         }
         const merged = { ...current, ...data };
@@ -1108,8 +1114,21 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-gray-900 truncate">
-              {!current ? "Neue Buchung" : mode === "edit" ? "Buchung bearbeiten" : current.guest_name || "Buchung"}
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-1.5 min-w-0">
+              {!current ? (
+                "Neue Buchung"
+              ) : mode === "edit" ? (
+                "Buchung bearbeiten"
+              ) : (
+                <>
+                  <span className="truncate">{current.guest_name || "Buchung"}</span>
+                  {isStammgast(current) && (
+                    <span title="Stammgast" className="flex-shrink-0">
+                      <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                    </span>
+                  )}
+                </>
+              )}
             </h2>
             {headerNumber && (
               <div className="flex items-center gap-1.5 mt-1">
@@ -1328,6 +1347,35 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     </p>
                   </div>
                 )}
+              </div>
+
+              {/* Bewusst als eigene, hervorgehobene Karte oben im Formular statt als
+                  Checkbox neben Personennotizen/Werbemails — soll nicht aus Versehen beim
+                  Ausfüllen der übrigen Gastdaten mit umgeschaltet werden. */}
+              <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <Star className={`w-5 h-5 flex-shrink-0 ${isRegularGuest ? "fill-amber-400 text-amber-400" : "text-amber-300"}`} />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-900">Stammgast</p>
+                    <p className="text-xs text-amber-700">
+                      {form.email ? "Manuell markieren, unabhängig von der Buchungsanzahl" : "Benötigt eine E-Mail-Adresse, um am Gast gespeichert zu werden"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isRegularGuest}
+                  disabled={!form.email}
+                  onClick={() => setIsRegularGuest((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+                    ${isRegularGuest ? "bg-amber-500" : "bg-gray-300"}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
+                      ${isRegularGuest ? "translate-x-6" : "translate-x-1"}`}
+                  />
+                </button>
               </div>
 
               <div className="grid grid-cols-[2fr_1fr_2fr_2fr] gap-4">

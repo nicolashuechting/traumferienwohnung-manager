@@ -4,6 +4,7 @@ import { CalendarGrid, type CalendarGridHandle } from "@/components/CalendarGrid
 import { SingleCalendarView, type SingleCalendarViewHandle } from "@/components/SingleCalendarView";
 import { BookingModal } from "@/components/BookingModal";
 import { useBookings } from "@/hooks/useBookings";
+import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { properties } from "@/lib/properties";
 import type { Booking } from "@/types";
@@ -20,6 +21,7 @@ function toLocalISO(d: Date): string {
 
 export function Calendar() {
   const { data: bookings = [], isLoading, error } = useBookings();
+  const { isStammgast } = useGuestStats();
   const { isViewer } = useUserRole();
   const [viewMode, setViewMode] = useState<ViewMode>("multi");
   const [houseFilter, setHouseFilter] = useState<HouseFilter>("all");
@@ -193,6 +195,7 @@ export function Calendar() {
             properties={filteredProperties}
             onBookingClick={handleBookingClick}
             onDateRangeSelect={handleDateRangeSelect}
+            isStammgast={isStammgast}
           />
         ) : (
           <SingleCalendarView
@@ -201,6 +204,7 @@ export function Calendar() {
             bookings={bookings}
             onBookingClick={handleBookingClick}
             onDateRangeSelect={handleDateRangeSelect}
+            isStammgast={isStammgast}
           />
         )}
       </div>

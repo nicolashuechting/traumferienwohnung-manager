@@ -2,11 +2,12 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ChevronUp, ChevronDown, ChevronsUpDown,
   Plus, SlidersHorizontal, X, Home, CalendarRange, ChevronDown as ChevDown,
-  RefreshCw, Mail,
+  RefreshCw, Mail, Star,
 } from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
 import { useIcalFeeds, useSyncIcalFeeds } from "@/hooks/useIcalFeeds";
 import { useGuests } from "@/hooks/useGuests";
+import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
@@ -197,6 +198,7 @@ export function Bookings() {
     () => new Set(guests.filter((g) => g.marketingConsent).map((g) => g.email.toLowerCase())),
     [guests],
   );
+  const { isStammgast } = useGuestStats();
   const { data: feeds = [] } = useIcalFeeds();
   const syncFeeds = useSyncIcalFeeds();
   const [syncMsg, setSyncMsg] = useState("");
@@ -545,6 +547,11 @@ export function Bookings() {
                       <td className="px-3 py-3 text-gray-900 font-medium min-w-[140px]">
                         <span className="inline-flex items-center gap-1.5">
                           {b.guest_name}
+                          {isStammgast(b) && (
+                            <span title="Stammgast">
+                              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 flex-shrink-0" />
+                            </span>
+                          )}
                           {b.email && consentEmails.has(b.email.toLowerCase()) && (
                             <span title="Hat der Werbemail-Zusendung zugestimmt">
                               <Mail className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from "react";
-import { Dog, Ban, CheckCircle2 } from "lucide-react";
+import { Dog, Ban, CheckCircle2, Star } from "lucide-react";
 import {
   DndContext, PointerSensor, useSensor, useSensors, useDraggable,
   type DragStartEvent, type DragMoveEvent, type DragEndEvent, type Modifier,
@@ -43,6 +43,7 @@ interface CalendarGridProps {
   properties?: Property[]; // gefilterte Liste der anzuzeigenden Wohnungen — Standard: alle
   onBookingClick: (booking: Booking) => void;
   onDateRangeSelect: (propertyId: string, startDate: Date, endDate: Date) => void;
+  isStammgast: (booking: Booking) => boolean;
 }
 
 export interface CalendarGridHandle {
@@ -56,9 +57,10 @@ interface DraggableBarProps {
   isConflict: boolean;
   isActiveDrag: boolean;
   dragCollision: boolean;
+  isStammgast: boolean;
   onClickBar: (b: Booking) => void;
 }
-function DraggableBar({ booking, left, width, top, height, isConflict, isActiveDrag, dragCollision, onClickBar }: DraggableBarProps) {
+function DraggableBar({ booking, left, width, top, height, isConflict, isActiveDrag, dragCollision, isStammgast, onClickBar }: DraggableBarProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: booking.id,
     data: { booking, mode: "move" as DragMode },
@@ -115,6 +117,7 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
       ) : (
         <>
           {isConflict && <span className="flex-shrink-0 text-[10px]">⚠</span>}
+          {isStammgast && <Star className="w-2.5 h-2.5 flex-shrink-0 fill-white" />}
           <span className="truncate min-w-0">{booking.guest_name}</span>
           {!booking.is_paid && (
             <span className="flex-shrink-0 bg-black/20 rounded px-1 text-[9px] font-normal ml-auto">€?</span>
@@ -239,7 +242,7 @@ const HEADER_BG: React.CSSProperties = {
 };
 
 export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(function CalendarGrid(
-  { bookings, properties: visibleProperties = properties, onBookingClick, onDateRangeSelect }, ref,
+  { bookings, properties: visibleProperties = properties, onBookingClick, onDateRangeSelect, isStammgast }, ref,
 ) {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [containerWidth, setContainerWidth] = useState(900);
@@ -711,6 +714,7 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
                               isConflict={isConflict}
                               isActiveDrag={isActiveDrag}
                               dragCollision={drag?.collision ?? false}
+                              isStammgast={isStammgast(booking)}
                               onClickBar={handleBarClick}
                             />
                             {showHandles && (

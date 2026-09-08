@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { X, Mail } from "lucide-react";
+import { X, Mail, Star } from "lucide-react";
 import { updateGuestAndBookings, type GuestEditFields } from "@/hooks/useGuests";
 import { splitGuestName } from "@/lib/guestName";
 
@@ -22,6 +22,7 @@ interface Props {
     country: string;
     personNotes: string;
     marketingConsent: boolean;
+    isRegularGuest: boolean;
   } | null;
   bookingIds: string[];
   totalBookings: number;
@@ -31,7 +32,7 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
   const qc = useQueryClient();
   const [form, setForm] = useState<GuestEditFields>({
     firstName: "", lastName: "", email: "", phone: "", street: "", houseNumber: "", zip: "", city: "", country: "",
-    personNotes: "", marketingConsent: false,
+    personNotes: "", marketingConsent: false, isRegularGuest: false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -55,6 +56,7 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
       country: guest.country,
       personNotes: guest.personNotes,
       marketingConsent: guest.marketingConsent,
+      isRegularGuest: guest.isRegularGuest,
     });
     setError("");
   }, [open, guest]);
@@ -91,6 +93,32 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
         </div>
 
         <div className="px-6 py-5 space-y-4">
+          {/* Bewusst separat von den übrigen Feldern (eigene Karte + Schieberegler statt
+              Checkbox in der Reihe) — verhindert, dass der Status aus Versehen beim
+              Ausfüllen der restlichen Felder mit umgeschaltet wird. */}
+          <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <Star className={`w-5 h-5 flex-shrink-0 ${form.isRegularGuest ? "fill-amber-400 text-amber-400" : "text-amber-300"}`} />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Stammgast</p>
+                <p className="text-xs text-amber-700">Manuell markieren, unabhängig von der Buchungsanzahl</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.isRegularGuest}
+              onClick={() => set("isRegularGuest", !form.isRegularGuest)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors
+                ${form.isRegularGuest ? "bg-amber-500" : "bg-gray-300"}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
+                  ${form.isRegularGuest ? "translate-x-6" : "translate-x-1"}`}
+              />
+            </button>
+          </div>
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-4 py-3">{error}</div>
           )}

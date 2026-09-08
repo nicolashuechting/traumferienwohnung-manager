@@ -148,6 +148,8 @@ export interface Guest {
   country: string;
   personNotes: string;       // z.B. "zahlt immer bar", "sitzt im Rollstuhl" — personenbezogen, nicht buchungsbezogen
   marketingConsent: boolean; // Einwilligung Werbemails, per Unterschrift auf der Buchungsbestätigung erteilt
+  isRegularGuest: boolean;   // manuell gesetzt — zusätzlich zum automatischen "Stammgast"-Stern ab 2 Buchungen
+                              // (siehe useGuestStats/isReturning) — überschreibt nie ab, nur zusätzlich an.
   updated_at: string;
 }
 

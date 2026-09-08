@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import {
   LogIn, LogOut, Home as HomeIcon, Users, Moon,
-  ChevronRight, Clock, Ship,
+  ChevronRight, Clock, Ship, Star,
 } from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
+import { useGuestStats } from "@/hooks/useGuestStats";
 import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
@@ -67,7 +68,7 @@ interface CalEvent {
   booking: Booking;
 }
 
-function EventCard({ ev, onClick }: { ev: CalEvent; onClick: () => void }) {
+function EventCard({ ev, onClick, isStammgast }: { ev: CalEvent; onClick: () => void; isStammgast: boolean }) {
   const n = nights(ev.booking.check_in, ev.booking.check_out);
   const persons = ev.booking.adults + ev.booking.children;
   // Relevante Fähre: Anreise → Anreise-Fähre, Abreise/Aktiv → Abreise-Fähre
@@ -107,6 +108,11 @@ function EventCard({ ev, onClick }: { ev: CalEvent; onClick: () => void }) {
       <div className="mt-2 flex items-center gap-4 text-sm flex-wrap">
         <span className="flex items-center gap-1.5 text-gray-700 font-medium">
           <span className="text-gray-400">👤</span> {ev.booking.guest_name}
+          {isStammgast && (
+            <span title="Stammgast">
+              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            </span>
+          )}
         </span>
         <span className="flex items-center gap-1.5 text-gray-500">
           <HomeIcon className="w-3.5 h-3.5 text-gray-400" /> {propName(ev.booking.property_id)}
@@ -123,7 +129,7 @@ function EventCard({ ev, onClick }: { ev: CalEvent; onClick: () => void }) {
 }
 
 // ── activity item ─────────────────────────────────────────────────────────────
-function ActivityItem({ booking, onClick }: { booking: Booking; onClick: () => void }) {
+function ActivityItem({ booking, onClick, isStammgast }: { booking: Booking; onClick: () => void; isStammgast: boolean }) {
   const ago = timeAgo(booking.created_at);
   const channelInitial = (booking.channel ?? "M")[0].toUpperCase();
   const channelColor =
@@ -150,7 +156,14 @@ function ActivityItem({ booking, onClick }: { booking: Booking; onClick: () => v
             <StatusChip status={booking.status} />
             <span className="text-xs text-gray-400">{ago}</span>
           </div>
-          <p className="text-sm font-medium text-gray-900 mt-1 truncate">{booking.guest_name}</p>
+          <p className="text-sm font-medium text-gray-900 mt-1 truncate flex items-center gap-1.5">
+            <span className="truncate">{booking.guest_name}</span>
+            {isStammgast && (
+              <span title="Stammgast" className="flex-shrink-0">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+              </span>
+            )}
+          </p>
           <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
             <span className="flex items-center gap-1">
               <LogIn className="w-3 h-3" />
@@ -177,6 +190,7 @@ type HouseFilter = "all" | "Upstalsboom" | "Haus Anne";
 
 export function Home() {
   const { data: bookings = [], isLoading } = useBookings();
+  const { isStammgast } = useGuestStats();
   const [houseFilter, setHouseFilter] = useState<HouseFilter>("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -297,7 +311,7 @@ export function Home() {
               </div>
             ) : (
               upcomingEvents.map((ev, i) => (
-                <EventCard key={`${ev.booking.id}-${ev.type}-${i}`} ev={ev} onClick={() => openBooking(ev.booking)} />
+                <EventCard key={`${ev.booking.id}-${ev.type}-${i}`} ev={ev} onClick={() => openBooking(ev.booking)} isStammgast={isStammgast(ev.booking)} />
               ))
             )}
           </div>
@@ -315,7 +329,7 @@ export function Home() {
               </div>
             ) : (
               recentActivity.map((b) => (
-                <ActivityItem key={b.id} booking={b} onClick={() => openBooking(b)} />
+                <ActivityItem key={b.id} booking={b} onClick={() => openBooking(b)} isStammgast={isStammgast(b)} />
               ))
             )}
           </div>

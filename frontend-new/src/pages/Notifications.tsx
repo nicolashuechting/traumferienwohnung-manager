@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, PartyPopper } from "lucide-react";
+import { ArrowLeft, PartyPopper, Star } from "lucide-react";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { properties } from "@/lib/properties";
 import { NotificationDetailPanel } from "@/components/NotificationDetailPanel";
@@ -19,11 +20,12 @@ function fmtDate(iso: string): string {
 }
 
 function NotificationRow({
-  group, booking, active, onClick,
+  group, booking, active, isStammgast, onClick,
 }: {
   group: BookingNotificationGroup;
   booking: Booking;
   active: boolean;
+  isStammgast: boolean;
   onClick: () => void;
 }) {
   const prop = properties.find((p) => p.id === booking.property_id);
@@ -37,6 +39,11 @@ function NotificationRow({
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
         <span className="text-sm font-semibold text-gray-900 truncate">{booking.guest_name || "Unbekannter Gast"}</span>
+        {isStammgast && (
+          <span title="Stammgast" className="flex-shrink-0">
+            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+          </span>
+        )}
       </div>
       <p className="text-xs text-gray-500 mt-0.5 truncate">
         {prop?.name ?? booking.property_id} · {fmtDate(booking.check_in)} – {fmtDate(booking.check_out)}
@@ -55,6 +62,7 @@ function NotificationRow({
 export function Notifications() {
   const { groups, bookingsById, settings, isLoading } = useNotifications();
   const { isViewer } = useUserRole();
+  const { isStammgast } = useGuestStats();
   const [houseFilter, setHouseFilter] = useState<HouseFilter>("Haus Anne");
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
@@ -133,7 +141,7 @@ export function Notifications() {
                 {overdue.map((g) => {
                   const b = bookingsById.get(g.bookingId);
                   if (!b) return null;
-                  return <NotificationRow key={g.bookingId} group={g} booking={b} active={g.bookingId === selectedBookingId} onClick={() => handleSelect(g.bookingId)} />;
+                  return <NotificationRow key={g.bookingId} group={g} booking={b} active={g.bookingId === selectedBookingId} isStammgast={isStammgast(b)} onClick={() => handleSelect(g.bookingId)} />;
                 })}
               </div>
             )}
@@ -145,7 +153,7 @@ export function Notifications() {
                 {soon.map((g) => {
                   const b = bookingsById.get(g.bookingId);
                   if (!b) return null;
-                  return <NotificationRow key={g.bookingId} group={g} booking={b} active={g.bookingId === selectedBookingId} onClick={() => handleSelect(g.bookingId)} />;
+                  return <NotificationRow key={g.bookingId} group={g} booking={b} active={g.bookingId === selectedBookingId} isStammgast={isStammgast(b)} onClick={() => handleSelect(g.bookingId)} />;
                 })}
               </div>
             )}
@@ -166,6 +174,7 @@ export function Notifications() {
                   booking={selectedBooking}
                   isViewer={isViewer}
                   settings={settings}
+                  isStammgast={isStammgast(selectedBooking)}
                 />
               </>
             ) : (
