@@ -14,6 +14,7 @@ import { generateBookingNumber } from "@/lib/bookingNumber";
 import { confirmStatusTransition } from "@/lib/statusTransition";
 import { confirmEmailSend } from "@/lib/emailWarning";
 import { generateConfirmationPdf, resolveLastName } from "@/lib/pdfConfirmation";
+import { hausAnneConfirmationEmailBody } from "@/lib/confirmationEmail";
 import { splitGuestName } from "@/lib/guestName";
 import {
   uploadConfirmationPdf, getLatestConfirmation,
@@ -855,14 +856,18 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     if (!current) return;
     if (!confirmEmailSend(current.guest_title)) return;
     const subject = `Ihre Buchungsbestätigung – ${current.booking_number || ""}`;
-    const body =
-      `Liebe Familie ${resolveLastName(current)},\n\n` +
-      `anbei erhalten Sie Ihre Buchungsbestätigung (Buchungsnummer ${current.booking_number || "–"}) ` +
-      `für Ihren Aufenthalt vom ${fmtDate(current.check_in)} bis ${fmtDate(current.check_out)}.\n\n` +
-      `Bitte füllen Sie die noch offenen Angaben aus, korrigieren Sie ggf. Unstimmigkeiten und senden Sie ` +
-      `uns das unterschriebene Dokument zurück.\n\n` +
-      `Wir freuen uns auf Ihren Besuch!\n\n` +
-      `Viele Grüße`;
+    // Haus Anne hat einen eigenen, ausführlicheren Begleittext (siehe confirmationEmail.ts)
+    // — Upstalsboom nutzt weiterhin den bisherigen kurzen Standardtext.
+    const isHausAnne = properties.find((p) => p.id === current.property_id)?.house === "Haus Anne";
+    const body = isHausAnne
+      ? hausAnneConfirmationEmailBody(current)
+      : `Liebe Familie ${resolveLastName(current)},\n\n` +
+        `anbei erhalten Sie Ihre Buchungsbestätigung (Buchungsnummer ${current.booking_number || "–"}) ` +
+        `für Ihren Aufenthalt vom ${fmtDate(current.check_in)} bis ${fmtDate(current.check_out)}.\n\n` +
+        `Bitte füllen Sie die noch offenen Angaben aus, korrigieren Sie ggf. Unstimmigkeiten und senden Sie ` +
+        `uns das unterschriebene Dokument zurück.\n\n` +
+        `Wir freuen uns auf Ihren Besuch!\n\n` +
+        `Viele Grüße`;
     const mailto = `mailto:${encodeURIComponent(current.email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, "_blank");
   };
