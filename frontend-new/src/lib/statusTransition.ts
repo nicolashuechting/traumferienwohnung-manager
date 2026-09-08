@@ -18,9 +18,8 @@ export function confirmStatusTransition(from: BookingStatus, to: BookingStatus):
   if (to === "storniert" && from !== "storniert") {
     window.alert('Buchung wird als storniert markiert. Falls laut Stornobedingungen eine Stornogebühr fällig ist, trage sie direkt im Feld "Stornogebühren" ein.');
   }
-  if (to === "bestaetigt" && from !== "bestaetigt") {
-    window.alert('Buchung wird bestätigt. Jetzt ist der richtige Zeitpunkt, die Buchungsbestätigung per E-Mail zu verschicken. Falls du dafür gerade keine Zeit hast, lass die Buchung lieber auf "Reserviert" stehen.');
-  }
+  if (to === "bestaetigt" && from !== "bestaetigt" &&
+      !window.confirm('Buchung wird bestätigt. Jetzt ist der richtige Zeitpunkt, die Buchungsbestätigung per E-Mail zu verschicken. Falls du dafür gerade keine Zeit hast, lass die Buchung lieber auf "Reserviert" stehen.')) return false;
   return true;
 }
 
