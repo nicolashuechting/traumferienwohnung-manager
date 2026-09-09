@@ -5,6 +5,7 @@ import {
 import QRCode from "qrcode";
 import { getArrivalTimes, getDepartureTimes } from "@/lib/ferry";
 import { priceGroupOf } from "@/lib/priceGroups";
+import { splitGuestName } from "@/lib/guestName";
 import type { Booking, HouseSettings } from "@/types";
 
 // ── Layout-Konstanten ─────────────────────────────────────────────────────────
@@ -44,6 +45,12 @@ export function surname(guestName: string): string {
 // getrennte Felder auf die surname()-Heuristik über guest_name zurück.
 export function resolveLastName(booking: Booking): string {
   return booking.guest_last_name?.trim() || surname(booking.guest_name);
+}
+
+// Analog zu resolveLastName, aber für den Vornamen — Fallback über dieselbe
+// splitGuestName()-Heuristik, die auch beim Vorbefüllen der Formulare genutzt wird.
+export function resolveFirstName(booking: Booking): string {
+  return booking.guest_first_name?.trim() || splitGuestName(booking.guest_name).first;
 }
 
 function dateMinusDays(iso: string, days: number): string {
@@ -370,7 +377,7 @@ export async function generateConfirmationPdf(
   // damit kein unnötig großer Leerraum unter dem Logo entsteht.
   const logoBottom = logoDims ? titleTop - logoDims.height : null;
   const besideLogoW = logoDims ? CONTENT_W - logoDims.width - 16 : CONTENT_W;
-  cursor.paragraph(`Liebe Frau/Herr/Familie ${resolveLastName(booking)},`, { maxWidth: besideLogoW });
+  cursor.paragraph(`Moin, Frau/Herr/Familie ${resolveFirstName(booking)} ${resolveLastName(booking)},`, { maxWidth: besideLogoW });
   cursor.gap(4);
   cursor.mixedParagraph(reservationSegments(booking), { maxWidth: besideLogoW });
   // Falls das Logo tiefer reicht als der Text daneben, erst ab Logo-Unterkante weitermachen.
