@@ -407,7 +407,8 @@ export async function generateConfirmationPdf(
 
   // 7. Kundendaten-Block
   cursor.ensureSpace(LINE_H + 4);
-  {
+  const hasAddress = !!(booking.street || booking.city || booking.zip);
+  if (!hasAddress) {
     const label = "Ihre Anschrift:";
     cursor.page.drawText(label, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
     const labelW = fonts.regular.widthOfTextAtSize(label, FONT_SIZE);
@@ -418,6 +419,10 @@ export async function generateConfirmationPdf(
       thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
     });
     cursor.y -= LINE_H;
+  } else {
+    const addressText = [`${booking.street} ${booking.houseNumber}`.trim(), `${booking.zip} ${booking.city}`.trim(), booking.country]
+      .filter(Boolean).join(", ");
+    cursor.paragraph(`Ihre Anschrift: ${addressText}`);
   }
   cursor.gap(4);
   if (!booking.phone) {
