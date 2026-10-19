@@ -109,6 +109,11 @@ function buildEpcQrPayload(house: HouseSettings, booking: Booking): string {
   return lines.join("\n");
 }
 
+// Data-URL (z.B. per Vite "?inline" eingebundenes Logo) → Bytes.
+export function dataUrlToBytes(dataUrl: string): Uint8Array {
+  return base64ToBytes(dataUrl.split(",")[1] ?? "");
+}
+
 // Base64 → Bytes, sowohl in Node (Testskripte) als auch im Browser lauffähig.
 function base64ToBytes(base64: string): Uint8Array {
   if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(base64, "base64"));
@@ -333,16 +338,17 @@ export async function generateConfirmationPdf(
   // einem Node-Testskript, ohne Anpassung nutzbar ist).
   let logoDims: { width: number; height: number } | null = null;
   let logoImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
-  if (logoBytes) {
-    try {
-      logoImage = await doc.embedPng(logoBytes);
-      const maxLogoW = 170;
-      const scale = maxLogoW / logoImage.width;
-      logoDims = { width: maxLogoW, height: logoImage.height * scale };
-    } catch {
-      logoDims = null; // Logo optional — Fehler blockiert die PDF-Erzeugung nicht
-    }
+  // Das Logo ist Pflicht: Fehlt es oder ist es kaputt, wird keine Bestätigung ohne Logo
+  // erzeugt, sondern ein Fehler gemeldet (früher wurde es stillschweigend weggelassen).
+  if (!logoBytes) throw new Error("Logo fehlt – bitte Seite neu laden und erneut versuchen.");
+  try {
+    logoImage = await doc.embedPng(logoBytes);
+  } catch {
+    throw new Error("Logo konnte nicht eingebettet werden – bitte Seite neu laden und erneut versuchen.");
   }
+  // In eine Box von max. 140 x 120 pt einpassen (Seitenverhältnis bleibt erhalten).
+  const logoScale = Math.min(140 / logoImage.width, 120 / logoImage.height);
+  logoDims = { width: logoImage.width * logoScale, height: logoImage.height * logoScale };
 
   // QR-Code für die Überweisung (GiroCode/EPC) erzeugen und einbetten.
   let qrImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;

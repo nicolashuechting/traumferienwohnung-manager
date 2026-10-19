@@ -13,7 +13,7 @@ import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStat
 import { generateBookingNumber } from "@/lib/bookingNumber";
 import { confirmStatusTransition } from "@/lib/statusTransition";
 import { confirmEmailSend } from "@/lib/emailWarning";
-import { generateConfirmationPdf, resolveLastName } from "@/lib/pdfConfirmation";
+import { generateConfirmationPdf, resolveLastName, dataUrlToBytes } from "@/lib/pdfConfirmation";
 import { hausAnneConfirmationEmailBody } from "@/lib/confirmationEmail";
 import { splitGuestName } from "@/lib/guestName";
 import {
@@ -23,8 +23,11 @@ import {
   type StoredConfirmation,
 } from "@/lib/confirmationStorage";
 import { fileToPdfBytes } from "@/lib/fileToPdf";
-import hausAnneLogoUrl from "@/assets/logos/haus-anne.png";
-import upstalsboomLogoUrl from "@/assets/logos/upstalsboom.png";
+// "?inline": Logos stecken direkt im App-Code (als Data-URL) statt als separate Datei, die
+// erst nachgeladen werden muss — so kann das Logo im PDF nicht mehr durch einen
+// fehlgeschlagenen Download (z.B. alter Tab nach einem Update) verschwinden.
+import hausAnneLogoUrl from "@/assets/logos/haus-anne.png?inline";
+import upstalsboomLogoUrl from "@/assets/logos/upstalsboom.png?inline";
 import { diffBooking, fieldLabel, formatFieldValue, formatHistoryDate } from "@/lib/bookingHistory";
 import { getTimes, hasFerryData, isNoBus, type FerryDirection } from "@/lib/ferry";
 import { findCollision } from "@/lib/bookingDrag";
@@ -816,7 +819,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setPdfLoading(true);
     let bytes: Uint8Array;
     try {
-      const logoBytes = await fetch(LOGO_URLS[houseId]).then((r) => r.arrayBuffer()).catch(() => null);
+      const logoBytes = dataUrlToBytes(LOGO_URLS[houseId]);
       bytes = await generateConfirmationPdf(target, house, logoBytes, { includeNewsletter: marketingConsent ? false : includeNewsletter });
     } catch (e) {
       setPdfError(`PDF konnte nicht erstellt werden: ${(e as Error).message}`);
