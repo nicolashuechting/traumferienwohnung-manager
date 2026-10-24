@@ -400,8 +400,10 @@ export async function generateConfirmationPdf(
 
   // 2. Titelblock + Logo oben rechts
   const titleTop = cursor.y;
-  cursor.page.drawText(invoiceMode ? "Buchungsbestätigung und Rechnung" : "Buchungsbestätigung", { x: MARGIN, y: cursor.y - TITLE_SIZE, size: TITLE_SIZE, font: fonts.bold });
-  cursor.y -= TITLE_SIZE + 10;
+  // Der längere Rechnungstitel etwas kleiner, damit er nicht an breite Logos (Upstalsboom) stößt.
+  const titleSize = invoiceMode ? 17 : TITLE_SIZE;
+  cursor.page.drawText(invoiceMode ? "Buchungsbestätigung und Rechnung" : "Buchungsbestätigung", { x: MARGIN, y: cursor.y - titleSize, size: titleSize, font: fonts.bold });
+  cursor.y -= titleSize + 10;
   if (invoiceMode) {
     cursor.mixedParagraph([{ text: "Buchungs-/Rechnungsnummer: " }, { text: numberText, bold: true }]);
     cursor.mixedParagraph([{ text: "Rechnungsdatum: " }, { text: finalInvoice ? fmtDate(finalInvoice.date) : "wird bei Erstellung vergeben", bold: true }]);
