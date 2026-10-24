@@ -27,6 +27,7 @@ export interface HouseSettings {
   checkInTime: string;       // "15:00"
   checkOutTime: string;      // "10:00"
   stornoText: string[];      // Bullet-Liste, z.B. ["bis zu drei Monate vor Buchungsbeginn: kostenfrei", ...]
+  steuernummer: string;      // z.B. "58/236/09007" — Pflichtangabe auf Rechnungen
 }
 
 // ── Preise ───────────────────────────────────────────────────────────────────
@@ -127,9 +128,33 @@ export interface Booking {
   updated_at: string;
   status_changed_at: string; // ISO-Zeitstempel, bei jeder Statusänderung aktualisiert (siehe useUpdateBooking/useCreateBooking)
   deletedAt: string | null; // Soft-Delete-Zeitstempel (ISO), null = aktiv
+  invoice: BookingInvoice | null; // gesetzt, sobald die Bestätigung als Rechnung endgültig erstellt wurde
 }
 
-export type BookingFormData = Omit<Booking, "id" | "userId" | "created_at" | "updated_at" | "deletedAt">;
+// Beim endgültigen Erstellen der Buchungsbestätigung (= Rechnung) einmalig festgeschrieben.
+// Danach sind die rechnungsrelevanten Felder der Buchung gesperrt (INVOICE_LOCKED_FIELDS).
+export interface BookingInvoice {
+  number: string;        // = booking_number, z.B. "AN-2027-0005"
+  date: string;          // Rechnungsdatum "YYYY-MM-DD"
+  storagePath: string;   // z.B. "rechnungen/haus-anne/2026-10/AN-2027-0005.pdf"
+  includeNewsletter: boolean; // damit ein erneutes Hochladen exakt dieselbe PDF erzeugt
+  gross: number;
+  net: number;
+  vat: number;
+  created_at: string;    // ISO
+  created_by: string;    // E-Mail
+}
+
+// Felder, die auf der Rechnung stehen bzw. den Preis bestimmen — nach dem endgültigen
+// Erstellen gesperrt (Änderungen später nur per Storno + neuer Rechnung).
+export const INVOICE_LOCKED_FIELDS = [
+  "property_id", "guest_title", "guest_first_name", "guest_last_name", "guest_name",
+  "street", "houseNumber", "zip", "city", "country",
+  "check_in", "check_out", "adults", "children", "kinderAlter", "dogCount",
+  "price", "priceIsManual", "priceBreakdown", "booking_number",
+] as const;
+
+export type BookingFormData = Omit<Booking, "id" | "userId" | "created_at" | "updated_at" | "deletedAt" | "invoice">;
 
 // ── Gast-Stammdaten ──────────────────────────────────────────────────────────
 // Ein Dokument pro Person (Collection "guests", ID = normalisierte E-Mail), damit

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  collection, getDocs,
+  collection, getDocs, getDoc,
   addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
@@ -9,6 +9,7 @@ import { properties } from "@/lib/properties";
 import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { diffBooking } from "@/lib/bookingHistory";
 import { upsertGuestFromBooking } from "@/hooks/useGuests";
+import { INVOICE_LOCKED_FIELDS } from "@/types";
 import type { Booking, BookingFormData, BookingStatus, FieldChange } from "@/types";
 
 // Schreibt einen Historien-Eintrag in die Sub-Collection bookings/{id}/history.
@@ -137,6 +138,7 @@ function normaliseBooking(id: string, raw: Record<string, unknown>): Booking {
     status_changed_at: (typeof raw.status_changed_at === "string" ? raw.status_changed_at : "")
       || toISOStringSafe(raw.updated_at) || toISOStringSafe(raw.created_at) || "",
     deletedAt:    (raw.deletedAt ?? null) as string | null,
+    invoice:      (raw.invoice && typeof raw.invoice === "object" ? raw.invoice : null) as Booking["invoice"],
   };
 }
 
@@ -197,12 +199,35 @@ interface UpdateBookingArgs {
   id: string;
   data: Partial<BookingFormData>;
   history?: { changes: FieldChange[]; note?: string };
+  // Notfall-Knopf "Sperre aufheben": erlaubt das Ändern rechnungsrelevanter Felder
+  // trotz bereits erstellter Rechnung (wird in der Historie vermerkt).
+  unlockInvoice?: boolean;
+}
+
+// Wirft, wenn die Änderung rechnungsrelevante Felder einer Buchung mit endgültiger
+// Rechnung verändern würde — zentral hier, damit es für ALLE Wege gilt (Formular,
+// Verschieben im Kalender, Wiederherstellen aus der Historie …).
+async function assertInvoiceUnlocked(id: string, data: Partial<BookingFormData>) {
+  const touched = INVOICE_LOCKED_FIELDS.filter((f) => f in data);
+  if (touched.length === 0) return;
+  const snap = await getDoc(doc(db, "bookings", id));
+  const raw = snap.data() as Record<string, unknown> | undefined;
+  const invoice = raw?.invoice as { number?: string } | undefined;
+  if (!raw || !invoice) return;
+  // Gegen die normalisierten Werte vergleichen (wie sie auch im Formular stehen), sonst
+  // gälten z.B. ein fehlendes Altfeld und "" schon als Änderung.
+  const saved = normaliseBooking(id, raw) as unknown as Record<string, unknown>;
+  const changed = touched.filter((f) => JSON.stringify(saved[f] ?? null) !== JSON.stringify((data as Record<string, unknown>)[f] ?? null));
+  if (changed.length > 0) {
+    throw new Error(`Für diese Buchung wurde schon die Rechnung ${invoice.number} erstellt – Name, Anschrift, Wohnung, Zeitraum, Personen und Preis sind gesperrt.`);
+  }
 }
 
 export function useUpdateBooking() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data, history }: UpdateBookingArgs) => {
+    mutationFn: async ({ id, data, history, unlockInvoice }: UpdateBookingArgs) => {
+      if (!unlockInvoice) await assertInvoiceUnlocked(id, data);
       // Zentral statt an jeder einzelnen Aufrufstelle: sobald der Status sich laut dem
       // mitgelieferten Diff wirklich ändert, wird status_changed_at neu gestempelt —
       // erfasst dadurch automatisch jede Stelle, die update.mutate mit einem Status-Diff
@@ -307,6 +332,11 @@ export function useHardDeleteBooking() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      // Buchungen mit Rechnung müssen erhalten bleiben (Aufbewahrungspflicht).
+      const snap = await getDoc(doc(db, "bookings", id));
+      const invoice = snap.data()?.invoice as { number?: string } | undefined;
+      // Ausnahme: Testrechnungen aus dem lokalen Testmodus ("TEST-…").
+      if (invoice && !invoice.number?.startsWith("TEST-")) throw new Error(`Diese Buchung hat die Rechnung ${invoice.number} und kann nicht endgültig gelöscht werden.`);
       // Historie der Buchung mit aufräumen (Sub-Collection wird nicht automatisch gelöscht)
       try {
         const snap = await getDocs(collection(db, "bookings", id, "history"));

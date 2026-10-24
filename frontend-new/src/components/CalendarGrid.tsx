@@ -332,6 +332,10 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
             ? `In „${propName(targetProperty)}" überschneidet sich die Buchung mit einer anderen. Trotzdem dorthin verschieben?`
             : "An diesem Zeitraum überschneidet sich die Buchung mit einer anderen. Trotzdem speichern?",
         )) return;
+    if (b.invoice) {
+      window.alert(`Für diese Buchung wurde schon die Rechnung ${b.invoice.number} erstellt – der Zeitraum ist gesperrt.`);
+      return;
+    }
     if (CONFIRMED_STATUSES.includes(b.status) &&
         !window.confirm("Diese Buchung wurde bereits bestätigt. Wirklich ändern?")) return;
     const newData = { check_in, check_out, property_id: targetProperty };

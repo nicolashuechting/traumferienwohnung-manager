@@ -27,6 +27,7 @@ async function fetchHouseSettings(): Promise<HouseSettings[]> {
       checkInTime: String(raw.checkInTime ?? "15:00"),
       checkOutTime: String(raw.checkOutTime ?? "10:00"),
       stornoText: Array.isArray(raw.stornoText) ? (raw.stornoText as string[]) : [],
+      steuernummer: String(raw.steuernummer ?? ""),
     };
   });
 }

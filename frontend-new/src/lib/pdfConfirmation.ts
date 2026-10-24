@@ -1,6 +1,6 @@
 import {
   PDFDocument, StandardFonts, rgb, PDFFont, PDFPage,
-  PDFName, PDFString, PDFArray,
+  PDFName, PDFString, PDFArray, degrees,
 } from "pdf-lib";
 import QRCode from "qrcode";
 import { getArrivalTimes, getDepartureTimes } from "@/lib/ferry";
@@ -20,7 +20,7 @@ const LINE_H = 12;
 const TITLE_SIZE = 20;
 const HEADER_SIZE = 8;
 const FOOTER_SIZE = 8;
-const FOOTER_ZONE_H = 46; // reservierter Platz unten für die Fußzeile
+const FOOTER_ZONE_H = 57; // reservierter Platz unten für die Fußzeile (bis zu 4 Zeilen)
 const SIGNATURE_BLOCK_H = 55;
 const CHECKBOX_SIZE = 9;
 
@@ -312,9 +312,31 @@ function priceLines(booking: Booking): { label: string; amount: string }[] {
   return lines;
 }
 
+// ── Rechnung ──────────────────────────────────────────────────────────────────
+// Alle Posten (Übernachtung, Reinigung, Wäsche, Hund) haben 7 % USt. Die Preise sind
+// Endpreise — die Steuer wird einmal aus dem Gesamtbetrag herausgerechnet (keine
+// Rundungsdifferenzen durch zeilenweises Rechnen).
+export const VAT_RATE = 0.07;
+
+export function computeVat(gross: number): { net: number; vat: number } {
+  const net = Math.round((gross / (1 + VAT_RATE)) * 100) / 100;
+  const vat = Math.round((gross - net) * 100) / 100;
+  return { net, vat };
+}
+
+// Festgeschriebene Rechnungsdaten (beim endgültigen Erstellen einmalig vergeben).
+export interface InvoiceInfo {
+  number: string;
+  date: string; // "YYYY-MM-DD"
+}
+
 // ── Hauptfunktion ────────────────────────────────────────────────────────────
 export interface GenerateOptions {
   includeNewsletter: boolean;
+  // undefined/null = alte Buchungsbestätigung (Buchungen mit alter ANNE-/UPS-Nummer),
+  // "draft" = Vorschau der Rechnung mit "ENTWURF"-Aufdruck (noch ohne Nummer/Datum),
+  // InvoiceInfo = endgültige Rechnung.
+  invoice?: InvoiceInfo | "draft" | null;
 }
 
 export async function generateConfirmationPdf(
@@ -323,6 +345,14 @@ export async function generateConfirmationPdf(
   logoBytes: Uint8Array | ArrayBuffer | null,
   options: GenerateOptions,
 ): Promise<Uint8Array> {
+  const invoiceMode = !!options.invoice;
+  const isDraft = options.invoice === "draft";
+  const finalInvoice = invoiceMode && !isDraft ? (options.invoice as InvoiceInfo) : null;
+  if (invoiceMode && !house.steuernummer?.trim()) {
+    throw new Error("Steuernummer fehlt – bitte unter Einstellungen → Haus-Konfiguration eintragen.");
+  }
+  const numberText = finalInvoice ? finalInvoice.number : isDraft ? "wird bei Erstellung vergeben" : booking.booking_number || "–";
+
   const doc = await PDFDocument.create();
   const fonts: Fonts = {
     regular: await doc.embedFont(StandardFonts.Helvetica),
@@ -336,8 +366,7 @@ export async function generateConfirmationPdf(
   // Logo einbetten (Bytes werden vom Aufrufer geladen — hier kein Laufzeit-Fetch/
   // Vite-Asset-Import, damit diese Funktion auch außerhalb des Browsers, z.B. in
   // einem Node-Testskript, ohne Anpassung nutzbar ist).
-  let logoDims: { width: number; height: number } | null = null;
-  let logoImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
+  let logoImage: Awaited<ReturnType<PDFDocument["embedPng"]>>;
   // Das Logo ist Pflicht: Fehlt es oder ist es kaputt, wird keine Bestätigung ohne Logo
   // erzeugt, sondern ein Fehler gemeldet (früher wurde es stillschweigend weggelassen).
   if (!logoBytes) throw new Error("Logo fehlt – bitte Seite neu laden und erneut versuchen.");
@@ -348,16 +377,19 @@ export async function generateConfirmationPdf(
   }
   // In eine Box von max. 140 x 120 pt einpassen (Seitenverhältnis bleibt erhalten).
   const logoScale = Math.min(140 / logoImage.width, 120 / logoImage.height);
-  logoDims = { width: logoImage.width * logoScale, height: logoImage.height * logoScale };
+  const logoDims: { width: number; height: number } | null = { width: logoImage.width * logoScale, height: logoImage.height * logoScale };
 
   // QR-Code für die Überweisung (GiroCode/EPC) erzeugen und einbetten.
   let qrImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
-  try {
-    const qrDataUrl = await QRCode.toDataURL(buildEpcQrPayload(house, booking), { margin: 1, width: 300 });
-    const qrBase64 = qrDataUrl.split(",")[1] ?? "";
-    qrImage = await doc.embedPng(base64ToBytes(qrBase64));
-  } catch {
-    qrImage = null; // QR-Code optional — Fehler blockiert die PDF-Erzeugung nicht
+  // (Nicht in der Vorschau — die hat noch keine Nummer und soll nicht bezahlt werden.)
+  if (!isDraft) {
+    try {
+      const qrDataUrl = await QRCode.toDataURL(buildEpcQrPayload(house, booking), { margin: 1, width: 300 });
+      const qrBase64 = qrDataUrl.split(",")[1] ?? "";
+      qrImage = await doc.embedPng(base64ToBytes(qrBase64));
+    } catch {
+      qrImage = null; // QR-Code optional — Fehler blockiert die PDF-Erzeugung nicht
+    }
   }
 
   // 1. Kopfzeile
@@ -368,9 +400,14 @@ export async function generateConfirmationPdf(
 
   // 2. Titelblock + Logo oben rechts
   const titleTop = cursor.y;
-  cursor.page.drawText("Buchungsbestätigung", { x: MARGIN, y: cursor.y - TITLE_SIZE, size: TITLE_SIZE, font: fonts.bold });
+  cursor.page.drawText(invoiceMode ? "Buchungsbestätigung und Rechnung" : "Buchungsbestätigung", { x: MARGIN, y: cursor.y - TITLE_SIZE, size: TITLE_SIZE, font: fonts.bold });
   cursor.y -= TITLE_SIZE + 10;
-  cursor.mixedParagraph([{ text: "Buchungsnummer: " }, { text: booking.booking_number || "–", bold: true }]);
+  if (invoiceMode) {
+    cursor.mixedParagraph([{ text: "Buchungs-/Rechnungsnummer: " }, { text: numberText, bold: true }]);
+    cursor.mixedParagraph([{ text: "Rechnungsdatum: " }, { text: finalInvoice ? fmtDate(finalInvoice.date) : "wird bei Erstellung vergeben", bold: true }]);
+  } else {
+    cursor.mixedParagraph([{ text: "Buchungsnummer: " }, { text: numberText, bold: true }]);
+  }
   if (logoImage && logoDims) {
     cursor.page.drawImage(logoImage, {
       x: PAGE_W - MARGIN - logoDims.width, y: titleTop - logoDims.height,
@@ -408,23 +445,50 @@ export async function generateConfirmationPdf(
   } else {
     cursor.mixedParagraph([{ text: "Der Gesamtpreis beträgt " }, { text: `${fmtEUR(booking.price)}.`, bold: true }]);
   }
+  if (invoiceMode) {
+    // Steuer-Block: Gesamtbetrag (brutto) + darin enthaltener Netto- und Steuerbetrag.
+    const { net, vat } = computeVat(booking.price);
+    cursor.gap(3);
+    cursor.ensureSpace(SMALL_LINE_H * 4);
+    cursor.page.drawLine({
+      start: { x: MARGIN, y: cursor.y }, end: { x: MARGIN + 340, y: cursor.y },
+      thickness: 0.5, color: rgb(0.6, 0.6, 0.6),
+    });
+    cursor.y -= 3;
+    const taxRows: { label: string; amount: string; bold?: boolean }[] = [
+      { label: "Gesamtbetrag (inkl. USt):", amount: fmtEUR(booking.price), bold: true },
+      { label: "darin enthalten: Nettobetrag:", amount: fmtEUR(net) },
+      { label: "darin enthalten: Umsatzsteuer 7 %:", amount: fmtEUR(vat) },
+    ];
+    taxRows.forEach(({ label, amount, bold }) => {
+      const font = bold ? fonts.bold : fonts.regular;
+      const color = bold ? rgb(0, 0, 0) : rgb(0.3, 0.3, 0.3);
+      cursor.page.drawText(label, { x: MARGIN, y: cursor.y - SMALL_SIZE, size: SMALL_SIZE, font, color });
+      cursor.page.drawText(amount, { x: MARGIN + 260, y: cursor.y - SMALL_SIZE, size: SMALL_SIZE, font, color });
+      cursor.y -= SMALL_LINE_H;
+    });
+  }
   // Größerer Absatz — danach beginnt ein neuer Bereich (Gästeinfos).
   cursor.gap(16);
 
   // 7. Kundendaten-Block
+  // Leere Angaben bekommen ein ausfüllbares Feld mit Schreiblinie — alle Linien beginnen
+  // bündig an derselben Stelle (hinter dem längsten Label) und reichen bis zum rechten Rand.
+  const blankFieldX = MARGIN + fonts.regular.widthOfTextAtSize("Telefonnummer:", FONT_SIZE) + 6;
+  const drawBlankField = (label: string) => {
+    cursor.ensureSpace(LINE_H + 4);
+    cursor.page.drawText(label, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+    drawInteractiveTextField(cursor, blankFieldX, cursor.y, PAGE_W - MARGIN - blankFieldX, 13);
+    cursor.page.drawLine({
+      start: { x: blankFieldX, y: cursor.y - 14 }, end: { x: PAGE_W - MARGIN, y: cursor.y - 14 },
+      thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
+    });
+    cursor.y -= LINE_H + 4;
+  };
   cursor.ensureSpace(LINE_H + 4);
   const hasAddress = !!(booking.street || booking.city || booking.zip);
   if (!hasAddress) {
-    const label = "Ihre Anschrift:";
-    cursor.page.drawText(label, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
-    const labelW = fonts.regular.widthOfTextAtSize(label, FONT_SIZE);
-    const fieldX = MARGIN + labelW + 6;
-    drawInteractiveTextField(cursor, fieldX, cursor.y, CONTENT_W - labelW - 6, 13);
-    cursor.page.drawLine({
-      start: { x: fieldX, y: cursor.y - 14 }, end: { x: PAGE_W - MARGIN, y: cursor.y - 14 },
-      thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
-    });
-    cursor.y -= LINE_H;
+    drawBlankField("Ihre Anschrift:");
   } else {
     const addressText = [`${booking.street} ${booking.houseNumber}`.trim(), `${booking.zip} ${booking.city}`.trim(), booking.country]
       .filter(Boolean).join(", ");
@@ -432,32 +496,12 @@ export async function generateConfirmationPdf(
   }
   cursor.gap(4);
   if (!booking.phone) {
-    cursor.ensureSpace(LINE_H + 4);
-    const label = "Telefonnummer:";
-    cursor.page.drawText(label, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
-    const labelW = fonts.regular.widthOfTextAtSize(label, FONT_SIZE);
-    const fieldX = MARGIN + labelW + 6;
-    drawInteractiveTextField(cursor, fieldX, cursor.y, 220, 13);
-    cursor.page.drawLine({
-      start: { x: fieldX, y: cursor.y - 14 }, end: { x: fieldX + 220, y: cursor.y - 14 },
-      thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
-    });
-    cursor.y -= LINE_H;
+    drawBlankField("Telefonnummer:");
   } else {
     cursor.paragraph(`Telefonnummer: ${booking.phone}`);
   }
   if (!booking.email) {
-    cursor.ensureSpace(LINE_H + 4);
-    const label = "E-Mail:";
-    cursor.page.drawText(label, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
-    const labelW = fonts.regular.widthOfTextAtSize(label, FONT_SIZE);
-    const fieldX = MARGIN + labelW + 6;
-    drawInteractiveTextField(cursor, fieldX, cursor.y, 220, 13);
-    cursor.page.drawLine({
-      start: { x: fieldX, y: cursor.y - 14 }, end: { x: fieldX + 220, y: cursor.y - 14 },
-      thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
-    });
-    cursor.y -= LINE_H;
+    drawBlankField("E-Mail:");
   } else {
     cursor.paragraph(`E-Mail: ${booking.email}`);
   }
@@ -561,11 +605,11 @@ export async function generateConfirmationPdf(
       house.kontoinhaber,
       `IBAN ${house.iban}`,
       house.bank,
-      `Verwendungszweck: ${booking.booking_number || "–"}`,
+      `Verwendungszweck: ${isDraft ? "(Nummer folgt)" : numberText}`,
       `Betrag: ${fmtEUR(booking.price)}`,
     ];
     const bankBlockH = bankLines.length * LINE_H;
-    const captionLines = wrapText("Mit der Banking-App scannen zum Überweisen", fonts.regular, SMALL_SIZE, captionW);
+    const captionLines = qrImage ? wrapText("Mit der Banking-App scannen zum Überweisen", fonts.regular, SMALL_SIZE, captionW) : [];
     const captionH = captionLines.length * (SMALL_SIZE + 2);
 
     cursor.ensureSpace(Math.max(bankBlockH, qrSize, captionH));
@@ -723,9 +767,10 @@ export async function generateConfirmationPdf(
     `${house.footerName}, ${house.name}, ${house.address}`,
     `${house.phone} · ${house.contactEmail}`,
     house.website,
+    ...(invoiceMode ? [`${house.kontoinhaber} · Steuernummer ${house.steuernummer}`] : []),
   ];
   doc.getPages().forEach((p) => {
-    let fy = MARGIN + FOOTER_SIZE * 2 + 4;
+    let fy = MARGIN + (footerLines.length - 1) * (FOOTER_SIZE + 3) - 2;
     footerLines.forEach((line) => {
       const w = fonts.regular.widthOfTextAtSize(line, FOOTER_SIZE);
       p.drawText(line, { x: (PAGE_W - w) / 2, y: fy, size: FOOTER_SIZE, font: fonts.regular, color: rgb(0.45, 0.45, 0.45) });
@@ -737,6 +782,16 @@ export async function generateConfirmationPdf(
   // Ohne diesen Aufruf fehlt manchen Feldern das /DA-Eintrag und pdf-lib wirft beim
   // Speichern "No /DA (default appearance) entry found".
   doc.getForm().updateFieldAppearances(fonts.regular);
+
+  // Vorschau: großer, blasser "ENTWURF"-Aufdruck quer über jede Seite.
+  if (isDraft) {
+    doc.getPages().forEach((p) => {
+      p.drawText("ENTWURF", {
+        x: 120, y: 250, size: 110, font: fonts.bold,
+        color: rgb(0.85, 0.2, 0.2), opacity: 0.15, rotate: degrees(40),
+      });
+    });
+  }
 
   return doc.save();
 }

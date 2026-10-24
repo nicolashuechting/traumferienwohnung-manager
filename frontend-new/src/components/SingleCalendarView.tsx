@@ -423,6 +423,10 @@ export const SingleCalendarView = forwardRef<SingleCalendarViewHandle, SingleCal
     if (check_in === b.check_in && check_out === b.check_out) return;
     if (hasCollision(bookings, b.property_id, b.id, check_in, check_out, b.ferry_time, b.ferry_time_departure, b.status) &&
         !window.confirm("An diesem Zeitraum überschneidet sich die Buchung mit einer anderen. Trotzdem speichern?")) return;
+    if (b.invoice) {
+      window.alert(`Für diese Buchung wurde schon die Rechnung ${b.invoice.number} erstellt – der Zeitraum ist gesperrt.`);
+      return;
+    }
     if (CONFIRMED_STATUSES.includes(b.status) &&
         !window.confirm("Diese Buchung wurde bereits bestätigt. Wirklich ändern?")) return;
     const newData = { check_in, check_out };

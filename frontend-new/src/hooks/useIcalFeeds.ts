@@ -6,7 +6,6 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { fetchIcal } from "@/lib/ical";
-import { generateBookingNumber } from "@/lib/bookingNumber";
 import type { IcalFeed, Booking } from "@/types";
 
 // ── Feed CRUD ──────────────────────────────────────────────────────────────────
@@ -84,17 +83,12 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
     )
   );
   const existingByUid = new Map<string, string>(); // ical_uid → doc id
+  const invoicedIds = new Set<string>(); // Buchungen mit Rechnung — werden beim Sync nicht mehr verändert
   existingSnap.docs.forEach((d) => {
-    const icalUid = (d.data() as Record<string, unknown>).ical_uid as string;
+    const data = d.data() as Record<string, unknown>;
+    const icalUid = data.ical_uid as string;
     if (icalUid) existingByUid.set(icalUid, d.id);
-  });
-
-  // Bereits vergebene Buchungsnummern des Nutzers laden (für kollisionsfreie Generierung)
-  const allSnap = await getDocs(query(collection(db, "bookings"), where("userId", "==", uid)));
-  const usedNumbers = new Set<string>();
-  allSnap.docs.forEach((d) => {
-    const num = (d.data() as Record<string, unknown>).booking_number as string;
-    if (num) usedNumbers.add(num);
+    if (data.invoice) invoicedIds.add(d.id);
   });
 
   for (const ev of events) {
@@ -103,7 +97,7 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
     // iCal DTEND for all-day events is exclusive (day after last night) — correct for check_out
     const bookingData: Omit<Booking, "id" | "created_at" | "updated_at"> = {
       property_id:  feed.property_id,
-      booking_number: "", // bei neuen Importen unten gesetzt
+      booking_number: "", // Nummer entsteht erst mit der Rechnung
       status:       "anfrage",
       guest_name:   ev.summary || "iCal-Buchung",
       guest_title:  "",
@@ -141,10 +135,14 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       source:       "ical",
       userId:       uid,
       deletedAt:    null,
+      invoice:      null,
     };
 
     const existingDocId = existingByUid.get(ev.uid);
-    if (existingDocId) {
+    if (existingDocId && invoicedIds.has(existingDocId)) {
+      // Rechnung ist schon erstellt → Daten sind festgeschrieben, Feed-Änderungen ignorieren.
+      continue;
+    } else if (existingDocId) {
       // Update existing (dates or summary may have changed)
       // booking_number, status sowie Kontakt-/Adressdaten NICHT überschreiben — die kommen
       // aus dem iCal-Feed ohnehin immer leer und würden sonst vom Nutzer nachträglich
@@ -155,6 +153,7 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
         contact_info: _ci, phone: _ph, landline: _ll, email: _em,
         street: _st2, houseNumber: _hn, zip: _zip, city: _city, country: _country,
         guest_title: _gt, guest_first_name: _gfn, guest_last_name: _gln,
+        invoice: _inv,
         ...updatable
       } = bookingData;
       await updateDoc(doc(db, "bookings", existingDocId), {
@@ -163,14 +162,11 @@ async function syncFeed(feed: IcalFeed): Promise<SyncResult> {
       });
       result.updated++;
     } else {
-      // New booking — eindeutige Buchungsnummer erzeugen
-      const number = generateBookingNumber(feed.property_id, ev.dtstart, usedNumbers);
-      usedNumbers.add(number);
+      // Neue Buchung — bekommt (wie jede Buchung) erst mit der Rechnung eine Nummer.
       // use setDoc with UID-based ID to ensure idempotency
       const safeId = `ical_${feed.property_id}_${ev.uid.replace(/[^a-zA-Z0-9]/g, "_")}`;
       await setDoc(doc(db, "bookings", safeId), {
         ...bookingData,
-        booking_number: number,
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
       });

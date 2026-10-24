@@ -31,6 +31,7 @@ function emptyHouse(id: HouseId): HouseSettings {
       "bis zu einem Monat vor Buchungsbeginn: 50% des Gesamtpreises",
       "danach: 95% des Gesamtpreises",
     ],
+    steuernummer: "",
   };
 }
 
@@ -132,6 +133,10 @@ export function HouseSettingsPage() {
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Kontoinhaber</label>
                 <input className={inputCls} value={draft.kontoinhaber} onChange={(e) => set("kontoinhaber", e.target.value)} placeholder="Haus Anne GbR" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Steuernummer (steht auf jeder Rechnung)</label>
+                <input className={inputCls} value={draft.steuernummer} onChange={(e) => set("steuernummer", e.target.value)} placeholder="58/236/09007" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

@@ -81,6 +81,10 @@ export function Trash() {
   }
 
   function handleHardDelete(b: Booking) {
+    if (b.invoice && !b.invoice.number.startsWith("TEST-")) {
+      window.alert(`Diese Buchung hat die Rechnung ${b.invoice.number} und muss aufbewahrt werden – endgültiges Löschen ist nicht möglich.`);
+      return;
+    }
     const ok = window.confirm(
       `Buchung von ${b.guest_name || "Unbekannter Gast"} (${fmt(b.check_in)} – ${fmt(b.check_out)}) endgültig löschen?\n\n` +
       `Das kann nicht rückgängig gemacht werden!`,

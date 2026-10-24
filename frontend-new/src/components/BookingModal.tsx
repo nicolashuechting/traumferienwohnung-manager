@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw, Mail, Star } from "lucide-react";
+import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw, Mail, Star, Lock } from "lucide-react";
 import { properties } from "@/lib/properties";
-import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings, useTrashedBookings } from "@/hooks/useBookings";
+import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings } from "@/hooks/useBookings";
 import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
@@ -10,7 +10,6 @@ import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
 import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStatus";
-import { generateBookingNumber } from "@/lib/bookingNumber";
 import { confirmStatusTransition } from "@/lib/statusTransition";
 import { confirmEmailSend } from "@/lib/emailWarning";
 import { generateConfirmationPdf, resolveLastName, dataUrlToBytes } from "@/lib/pdfConfirmation";
@@ -23,6 +22,10 @@ import {
   type StoredConfirmation,
 } from "@/lib/confirmationStorage";
 import { fileToPdfBytes } from "@/lib/fileToPdf";
+import {
+  finalizeInvoice, uploadInvoicePdf, getInvoiceUrl, uploadSignedInvoice, getLatestSignedInvoice,
+  isInvoiceNumber, houseIdOf, INVOICE_TEST_MODE,
+} from "@/lib/invoice";
 // "?inline": Logos stecken direkt im App-Code (als Data-URL) statt als separate Datei, die
 // erst nachgeladen werden muss — so kann das Logo im PDF nicht mehr durch einen
 // fehlgeschlagenen Download (z.B. alter Tab nach einem Update) verschwinden.
@@ -38,7 +41,14 @@ import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
 import { NotifyDialog } from "@/components/NotifyDialog";
 import { shouldNotify } from "@/lib/bookingNotify";
 import { sendChangeNotification } from "@/lib/notifyEmail";
-import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId, HouseSettings, Guest } from "@/types";
+import { INVOICE_LOCKED_FIELDS } from "@/types";
+import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId, HouseSettings, Guest, BookingInvoice } from "@/types";
+
+// Gesperrte Rechnungsfelder grau darstellen (fieldset mit display: contents, damit das
+// Grid-Layout der Felder unverändert bleibt).
+const LOCK_FIELDSET_CLS = "contents [&_input:disabled]:bg-gray-100 [&_input:disabled]:text-gray-500 [&_select:disabled]:bg-gray-100 [&_select:disabled]:text-gray-500";
+
+type PdfAction = "legacy" | "draft" | "final";
 
 const FERRY_INPUT_CLS = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 const LOGO_URLS: Record<HouseId, string> = { "haus-anne": hausAnneLogoUrl, "upstalsboom": upstalsboomLogoUrl };
@@ -467,7 +477,12 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const [pdfSaving, setPdfSaving] = useState(false);
   // "Bestätigung erstellen" bei ungespeicherten Änderungen: erst speichern (inkl.
   // gewohnter Diff-/Kollisions-Bestätigung), danach automatisch die PDF erstellen.
-  const [pdfAfterSave, setPdfAfterSave] = useState(false);
+  const [pdfAfterSave, setPdfAfterSave] = useState<PdfAction | false>(false);
+  // Endgültige Rechnung: URL der gespeicherten PDF (null = noch nicht/nicht mehr auffindbar)
+  const [invoiceUrl, setInvoiceUrl] = useState<string | null>(null);
+  const [invoiceUrlChecked, setInvoiceUrlChecked] = useState(false);
+  // Notfall-Knopf "Sperre aufheben" (gilt nur für die aktuelle Bearbeitung)
+  const [unlockInvoice, setUnlockInvoice] = useState(false);
   const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
   const [guestSuggestion, setGuestSuggestion] = useState<Guest | null>(null);
   const [nameCollisionHint, setNameCollisionHint] = useState<string | null>(null);
@@ -499,7 +514,6 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const [notifyError, setNotifyError] = useState("");
 
   const { data: allBookings = [] } = useBookings();
-  const { data: trashedBookings = [] } = useTrashedBookings();
   const { data: history = [] } = useBookingHistory(current?.id);
   const { data: priceSettings = [] } = usePriceSettings();
   const { data: houseSettings = [] } = useHouseSettings();
@@ -521,13 +535,6 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   }, [form.property_id, form.check_in, form.check_out, form.adults, form.children, form.dogCount, priceSettings]);
 
   const isLoading = create.isPending || update.isPending || del.isPending;
-
-  // Auch Nummern im Papierkorb gelten als belegt, damit eine neue Buchung
-  // nicht versehentlich die Nummer einer wiederherstellbaren Buchung erhält.
-  const existingNumbers = useMemo(
-    () => new Set([...allBookings, ...trashedBookings].map((b) => b.booking_number).filter(Boolean)),
-    [allBookings, trashedBookings],
-  );
 
   // Bezugswert der preisrelevanten Felder, gegen den der Auto-Berechnungs-Effekt
   // vergleicht — verhindert, dass das bloße Öffnen des Modals einen bereits
@@ -586,6 +593,9 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setRestoreEntry(null);
     setPendingCollision(null);
     setPdfAfterSave(false);
+    setInvoiceUrl(null);
+    setInvoiceUrlChecked(false);
+    setUnlockInvoice(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
 
@@ -619,11 +629,20 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         if (!cancelled && result) setOwnConfirmation(result);
       })
       .catch(() => {});
-    getLatestSignedConfirmation(booking.id)
+    (isInvoiceNumber(booking.booking_number)
+      ? getLatestSignedInvoice(booking.property_id, booking.booking_number)
+      : getLatestSignedConfirmation(booking.id))
       .then((result) => {
         if (!cancelled && result) setSignedConfirmation(result);
       })
       .catch(() => {});
+    if (booking.invoice) {
+      getInvoiceUrl(booking.invoice).then((url) => {
+        if (cancelled) return;
+        setInvoiceUrl(url);
+        setInvoiceUrlChecked(true);
+      });
+    }
     return () => {
       cancelled = true;
     };
@@ -677,8 +696,16 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.property_id, form.check_in, form.check_out, form.adults, form.children, form.dogCount, autoResult]);
 
-  const set = <K extends keyof BookingFormData>(key: K, value: BookingFormData[K]) =>
+  // Rechnung endgültig erstellt → rechnungsrelevante Felder gesperrt (außer per Notfall-Knopf).
+  const invoice: BookingInvoice | null = current?.invoice ?? null;
+  const invoiceLocked = !!invoice && !unlockInvoice;
+  // Buchungen mit alter (ANNE-/UPS-)Nummer behalten die bisherige Bestätigung ohne Rechnungsteil.
+  const isLegacyNumber = !invoice && !!current?.booking_number && !isInvoiceNumber(current.booking_number);
+
+  const set = <K extends keyof BookingFormData>(key: K, value: BookingFormData[K]) => {
+    if (invoiceLocked && (INVOICE_LOCKED_FIELDS as readonly string[]).includes(key)) return;
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
   // Gast-Erkennung nur beim Neuanlegen (bei bestehenden Buchungen sind Daten schon gesetzt).
   const handleEmailBlur = () => {
@@ -740,11 +767,11 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     });
   };
 
-  // Vergibt eine Buchungsnummer nur, sobald der Status "bestätigt" oder höher erreicht
-  // ist (siehe NUMBERED_STATUSES) — reine Anfragen/Reservierungen bleiben unnummeriert.
-  // Einmal vergeben bleibt die Nummer erhalten, auch falls der Status später zurückgesetzt wird.
-  const ensureNumber = (f: BookingFormData): string =>
-    f.booking_number || (NUMBERED_STATUSES.includes(f.status) ? generateBookingNumber(f.property_id, f.check_in, existingNumbers) : "");
+  // Neue Buchungsnummern (AN-/UB-JJJJ-0001, fortlaufend) entstehen erst beim endgültigen
+  // Erstellen der Rechnung (siehe finalizeInvoice) — so gibt es keine Lücken durch
+  // Buchungen, die nach "Bestätigt" doch nicht zustande kommen. Vorhandene (auch alte
+  // ANNE-/UPS-)Nummern bleiben unverändert erhalten.
+  const ensureNumber = (f: BookingFormData): string => f.booking_number;
 
   // Vorschau der Felder, die beim Wiederherstellen zurückgesetzt würden (aktuell → damals)
   const restorePreview = useMemo<FieldChange[]>(() => {
@@ -844,7 +871,122 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       .finally(() => setPdfSaving(false));
   };
 
+  // ── Neue Bestätigung = Rechnung (AN-/UB-Nummern) ──────────────────────────
+  const newsletterFlag = marketingConsent ? false : includeNewsletter;
+
+  const pdfInputsFor = (target: Booking) => {
+    const houseId = houseIdOf(target.property_id);
+    const house = houseSettings.find((h) => h.id === houseId);
+    if (!house) throw new Error("Keine Haus-Konfiguration gefunden – bitte zuerst unter Einstellungen → Haus-Konfiguration ausfüllen.");
+    return { house, logoBytes: dataUrlToBytes(LOGO_URLS[houseId]) };
+  };
+
+  const openPdfInTab = (bytes: Uint8Array) => {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
+    window.open(url, "_blank");
+  };
+
+  // Vorschau: beliebig oft, mit "ENTWURF"-Aufdruck, wird nirgends gespeichert.
+  const handleDraftPdf = async (target: Booking) => {
+    setPdfError("");
+    setPdfLoading(true);
+    try {
+      const { house, logoBytes } = pdfInputsFor(target);
+      openPdfInTab(await generateConfirmationPdf(target, house, logoBytes, { includeNewsletter: newsletterFlag, invoice: "draft" }));
+    } catch (e) {
+      setPdfError(`Vorschau konnte nicht erstellt werden: ${(e as Error).message}`);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  // Erzeugt die PDF zur festgeschriebenen Rechnung und legt sie im Rechnungsordner ab.
+  // Wird auch für "Erneut speichern" genutzt, falls das Hochladen beim ersten Mal scheiterte.
+  const storeInvoicePdf = async (target: Booking, inv: BookingInvoice) => {
+    const { house, logoBytes } = pdfInputsFor(target);
+    const bytes = await generateConfirmationPdf(target, house, logoBytes, {
+      includeNewsletter: inv.includeNewsletter,
+      invoice: { number: inv.number, date: inv.date },
+    });
+    setPdfBytes(bytes);
+    setPdfFileName(`${inv.number}.pdf`);
+    openPdfInTab(bytes);
+    setPdfUploadError("");
+    setPdfSaving(true);
+    try {
+      setInvoiceUrl(await withTimeout(uploadInvoicePdf(inv, bytes), 20000));
+      setInvoiceUrlChecked(true);
+    } catch (e) {
+      setInvoiceUrlChecked(true);
+      setPdfUploadError(`Die Rechnung wurde NICHT im Speicher abgelegt (${(e as Error).message}). Bitte auf „Erneut speichern" klicken.`);
+    } finally {
+      setPdfSaving(false);
+    }
+  };
+
+  const handleFinalizeInvoice = async (target: Booking) => {
+    setPdfError("");
+    if (!NUMBERED_STATUSES.includes(target.status) || target.status === "storniert") {
+      setPdfError("Die Rechnung kann erst erstellt werden, wenn die Buchung bestätigt ist.");
+      return;
+    }
+    let house: HouseSettings;
+    try {
+      ({ house } = pdfInputsFor(target));
+    } catch (e) {
+      setPdfError((e as Error).message);
+      return;
+    }
+    if (!house.steuernummer.trim()) {
+      setPdfError("Steuernummer fehlt – bitte zuerst unter Einstellungen → Haus-Konfiguration eintragen.");
+      return;
+    }
+    if (!(target.price > 0) && !window.confirm("Der Preis ist 0 €. Trotzdem eine Rechnung erstellen?")) return;
+    if (!window.confirm(
+      "Bestätigung jetzt endgültig als Rechnung erstellen?\n\n" +
+      "Die Buchung bekommt die nächste fortlaufende Rechnungsnummer und das heutige Rechnungsdatum. " +
+      "Danach sind Name, Anschrift, Wohnung, Zeitraum, Personen und Preis gesperrt.\n\n" +
+      "Tipp: Vorher mit „Vorschau\" prüfen.",
+    )) return;
+    setPdfLoading(true);
+    try {
+      const inv = await finalizeInvoice(target, newsletterFlag);
+      const merged: Booking = { ...target, booking_number: inv.number, invoice: inv };
+      setCurrent(merged);
+      setForm((prev) => ({ ...prev, booking_number: inv.number }));
+      qc.invalidateQueries({ queryKey: ["bookingsAll"] });
+      qc.invalidateQueries({ queryKey: ["bookingHistory", target.id] });
+      await storeInvoicePdf(merged, inv);
+    } catch (e) {
+      setPdfError(`Rechnung konnte nicht erstellt werden: ${(e as Error).message}`);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const handleRetryStoreInvoice = async () => {
+    if (!current?.invoice) return;
+    setPdfError("");
+    setPdfLoading(true);
+    try {
+      await storeInvoicePdf(current, current.invoice);
+    } catch (e) {
+      setPdfError(`PDF konnte nicht erstellt werden: ${(e as Error).message}`);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const runPdfAction = async (action: PdfAction, target?: Booking) => {
+    const t = target ?? current;
+    if (!t) return;
+    if (action === "draft") await handleDraftPdf(t);
+    else if (action === "final") await handleFinalizeInvoice(t);
+    else await handleGeneratePdf(t);
+  };
+
   const handleDownloadPdf = () => {
+    if (!pdfBytes && invoiceUrl) { window.open(invoiceUrl, "_blank"); return; }
     if (!pdfBytes) return;
     const blob = new Blob([pdfBytes as BlobPart], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
@@ -900,7 +1042,12 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setSignedUploading(true);
     try {
       const bytes = await fileToPdfBytes(file);
-      const result = await withTimeout(uploadSignedConfirmation(current.id, bytes), 20000);
+      const result = await withTimeout(
+        isInvoiceNumber(current.booking_number)
+          ? uploadSignedInvoice(current.property_id, current.booking_number, bytes)
+          : uploadSignedConfirmation(current.id, bytes),
+        20000,
+      );
       setSignedConfirmation(result);
     } catch (err) {
       setSignedUploadError((err as Error).message);
@@ -1006,7 +1153,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         qc.invalidateQueries({ queryKey: ["guests"] });
       }
       setMode("view");
-      if (pdfAfterSave) { setPdfAfterSave(false); await handleGeneratePdf(); }
+      if (pdfAfterSave) { const action = pdfAfterSave; setPdfAfterSave(false); await runPdfAction(action); }
       return;
     }
     setPendingSave({ data: dataToSave, changes });
@@ -1048,7 +1195,18 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setShowSaveDiff(false);
     const actuallyUpdate = async () => {
       try {
-        await update.mutateAsync({ id: current.id, data, history: { changes } });
+        await update.mutateAsync({
+          id: current.id,
+          data,
+          history: {
+            changes,
+            note: unlockInvoice && current.invoice
+              ? `Rechnungssperre aufgehoben – Rechnung ${current.invoice.number} passt evtl. nicht mehr zur Buchung`
+              : undefined,
+          },
+          unlockInvoice,
+        });
+        setUnlockInvoice(false);
         if (data.email) {
           await upsertGuestFields(data.email, { personNotes, marketingConsent, isRegularGuest });
           qc.invalidateQueries({ queryKey: ["guests"] });
@@ -1058,7 +1216,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         setForm(data);
         setPendingSave(null);
         setMode("view");
-        if (pdfAfterSave) { setPdfAfterSave(false); await handleGeneratePdf(merged); }
+        if (pdfAfterSave) { const action = pdfAfterSave; setPdfAfterSave(false); await runPdfAction(action, merged); }
       } catch (e) {
         setError((e as Error).message);
         setPdfAfterSave(false);
@@ -1071,12 +1229,12 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   // wie gewohnt speichern (inkl. Diff-/Kollisions-Bestätigung), danach automatisch die
   // PDF erstellen — sonst würden z.B. eine gerade erst vergebene Buchungsnummer oder
   // eine geänderte Personenzahl in der PDF fehlen.
-  const handleGeneratePdfClick = async () => {
+  const handlePdfButton = async (action: PdfAction) => {
     if (mode === "edit" && current && diffBooking(current, form).length > 0) {
-      setPdfAfterSave(true);
+      setPdfAfterSave(action);
       await handleSaveClick();
     } else {
-      await handleGeneratePdf();
+      await runPdfAction(action);
     }
   };
 
@@ -1386,6 +1544,32 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 </button>
               </div>
 
+              {invoice && (
+                <div className={`rounded-lg border px-3 py-2 text-sm flex items-start justify-between gap-3 ${invoiceLocked ? "border-gray-300 bg-gray-50 text-gray-700" : "border-red-300 bg-red-50 text-red-800"}`}>
+                  <span className="flex items-start gap-2">
+                    <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    {invoiceLocked
+                      ? <span>Rechnung <span className="font-mono font-semibold">{invoice.number}</span> ist erstellt – Name, Anschrift, Wohnung, Zeitraum, Personen und Preis sind gesperrt.</span>
+                      : <span>Sperre aufgehoben – Änderungen passen danach nicht mehr zur Rechnung {invoice.number}. Bitte notieren!</span>}
+                  </span>
+                  {invoiceLocked && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(
+                          "Sperre wirklich aufheben?\n\nDie Rechnung " + invoice.number + " bleibt unverändert. Änderungen an der Buchung passen danach " +
+                          "nicht mehr zur Rechnung – das wird in der Historie vermerkt. Bitte den Fall notieren, damit er später per Storno korrigiert werden kann.",
+                        )) setUnlockInvoice(true);
+                      }}
+                      className="text-xs font-medium text-red-700 hover:text-red-800 underline whitespace-nowrap"
+                    >
+                      Sperre aufheben
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <fieldset disabled={invoiceLocked} className={LOCK_FIELDSET_CLS}>
               <div className="grid grid-cols-[2fr_1fr_2fr_2fr] gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Wohnung *</label>
@@ -1424,6 +1608,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                   <input type="date" value={form.check_out} onChange={(e) => set("check_out", e.target.value)} className={inputCls} />
                 </div>
               </div>
+
+              </fieldset>
 
               {/* Fährzeiten – Anreise nach check_in, Abreise nach check_out */}
               <div className="grid grid-cols-2 gap-4">
@@ -1490,6 +1676,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 </div>
               )}
 
+              <fieldset disabled={invoiceLocked} className={LOCK_FIELDSET_CLS}>
               <div className="grid grid-cols-[2fr_1fr] gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Straße</label>
@@ -1518,15 +1705,16 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
               <div className="grid grid-cols-2 gap-4">
                 <PriceSection key={current?.id ?? "new"} form={form} set={set} autoResult={autoResult} />
               </div>
+              </fieldset>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Erwachsene</label>
-                  <input type="number" min={1} max={20} value={form.adults} onChange={(e) => set("adults", parseInt(e.target.value) || 1)} className={inputCls} />
+                  <input type="number" min={1} max={20} value={form.adults} onChange={(e) => set("adults", parseInt(e.target.value) || 1)} disabled={invoiceLocked} className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-500`} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Kinder</label>
-                  <input type="number" min={0} max={20} value={form.children} onChange={(e) => setChildrenCount(parseInt(e.target.value) || 0)} className={inputCls} />
+                  <input type="number" min={0} max={20} value={form.children} onChange={(e) => setChildrenCount(parseInt(e.target.value) || 0)} disabled={invoiceLocked} className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-500`} />
                 </div>
                 <div className="flex flex-col justify-end gap-2 pb-1">
                   {form.status !== "storniert" && (
@@ -1540,7 +1728,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     <select
                       value={form.dogCount}
                       onChange={(e) => set("dogCount", parseInt(e.target.value) || 0)}
-                      disabled={!selectedProperty?.allowsDogs}
+                      disabled={!selectedProperty?.allowsDogs || invoiceLocked}
                       className="border border-gray-300 rounded-lg px-2 py-1 text-sm disabled:opacity-50 disabled:bg-gray-100"
                     >
                       <option value={0}>0</option>
@@ -1553,11 +1741,13 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 </div>
               </div>
 
-              <ChildrenAgesInput
-                count={form.children}
-                ages={form.kinderAlter}
-                onChange={(ages) => set("kinderAlter", ages)}
-              />
+              <fieldset disabled={invoiceLocked} className={LOCK_FIELDSET_CLS}>
+                <ChildrenAgesInput
+                  count={form.children}
+                  ages={form.kinderAlter}
+                  onChange={(ages) => set("kinderAlter", ages)}
+                />
+              </fieldset>
 
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <p className="text-sm font-medium text-gray-700 mb-3">Benötigte Ausstattung</p>
@@ -1618,8 +1808,15 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
 
               {current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
                 <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-                  <span className="text-sm font-semibold text-gray-700">Buchungsbestätigung (PDF)</span>
-                  {savedConfirmation && (
+                  <span className="text-sm font-semibold text-gray-700">
+                    {isLegacyNumber ? "Buchungsbestätigung (PDF)" : "Buchungsbestätigung und Rechnung (PDF)"}
+                  </span>
+                  {INVOICE_TEST_MODE && !isLegacyNumber && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      Testmodus (lokal): Nummern beginnen mit „TEST-" und werden getrennt von den echten Rechnungen abgelegt.
+                    </p>
+                  )}
+                  {isLegacyNumber && savedConfirmation && (
                     <p className="text-xs text-green-700">
                       ✓ Bestätigt am{" "}
                       {new Date(savedConfirmation.timestamp).toLocaleDateString("de-DE")} um{" "}
@@ -1630,7 +1827,27 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                       </a>
                     </p>
                   )}
-                  {marketingConsent ? (
+                  {invoice && (
+                    <p className="text-xs text-green-700">
+                      ✓ Rechnung <span className="font-mono font-semibold">{invoice.number}</span> vom{" "}
+                      {fmtDate(invoice.date)}
+                      {invoiceUrl && (
+                        <>
+                          {" · "}
+                          <a href={invoiceUrl} target="_blank" rel="noreferrer" className="underline">PDF öffnen</a>
+                        </>
+                      )}
+                    </p>
+                  )}
+                  {invoice && invoiceUrlChecked && !invoiceUrl && !pdfSaving && (
+                    <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center justify-between gap-3">
+                      <span>Die PDF zu dieser Rechnung fehlt im Speicher.</span>
+                      <button type="button" onClick={handleRetryStoreInvoice} disabled={pdfLoading} className="px-3 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded disabled:opacity-50">
+                        Erneut speichern
+                      </button>
+                    </div>
+                  )}
+                  {!invoice && (marketingConsent ? (
                     <p className="text-sm text-green-700 flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5" /> Hat bereits in Werbemails eingewilligt — Frage wird auf der PDF weggelassen.
                     </p>
@@ -1639,20 +1856,27 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                       <input type="checkbox" checked={includeNewsletter} onChange={(e) => setIncludeNewsletter(e.target.checked)} />
                       Newsletter-Frage einschließen
                     </label>
-                  )}
+                  ))}
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={handleGeneratePdfClick}
-                      disabled={pdfLoading}
-                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50"
-                    >
-                      {pdfLoading ? "Erstelle…" : "Bestätigung erstellen"}
-                    </button>
+                    {isLegacyNumber && (
+                      <button type="button" onClick={() => handlePdfButton("legacy")} disabled={pdfLoading} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50">
+                        {pdfLoading ? "Erstelle…" : "Bestätigung erstellen"}
+                      </button>
+                    )}
+                    {!isLegacyNumber && !invoice && (
+                      <>
+                        <button type="button" onClick={() => handlePdfButton("draft")} disabled={pdfLoading} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition disabled:opacity-50">
+                          Vorschau
+                        </button>
+                        <button type="button" onClick={() => handlePdfButton("final")} disabled={pdfLoading} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition disabled:opacity-50">
+                          {pdfLoading ? "Erstelle…" : "Endgültig erstellen"}
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       onClick={handleDownloadPdf}
-                      disabled={!pdfBytes}
+                      disabled={!pdfBytes && !invoiceUrl}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition disabled:opacity-50"
                     >
                       Herunterladen
@@ -1666,12 +1890,16 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     </button>
                   </div>
                   <p className="text-xs text-gray-400">
-                    Jede erstellte Bestätigung wird zusätzlich als neue Version in Firebase Storage abgelegt.
+                    {isLegacyNumber
+                      ? "Alte Buchungsnummer: Bestätigung im bisherigen Format, jede Version wird zusätzlich in Firebase Storage abgelegt. "
+                      : invoice
+                        ? "Die Rechnung ist festgeschrieben – „Herunterladen\" liefert immer genau diese Datei. "
+                        : "„Vorschau\" zeigt die Bestätigung mit „ENTWURF\"-Aufdruck und speichert nichts. „Endgültig erstellen\" vergibt Rechnungsnummer und Rechnungsdatum und legt die PDF im Rechnungsordner ab. "}
                     „E-Mail" öffnet nur das Mailprogramm – die Datei bitte vorher über „Herunterladen" anhängen.
                   </p>
-                  {pdfSaving && <p className="text-xs text-gray-500">Wird in Firebase Storage gespeichert…</p>}
+                  {pdfSaving && <p className="text-xs text-gray-500">Wird gespeichert…</p>}
                   {pdfError && <p className="text-sm text-red-600">{pdfError}</p>}
-                  {pdfUploadError && <p className="text-sm text-amber-600">{pdfUploadError}</p>}
+                  {pdfUploadError && <p className="text-sm text-red-600">{pdfUploadError}</p>}
                 </div>
               )}
 
