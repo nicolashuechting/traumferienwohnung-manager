@@ -15,7 +15,6 @@ import { Settings } from "@/pages/Settings";
 import { PriceSettings } from "@/pages/PriceSettings";
 import { HouseSettingsPage } from "@/pages/HouseSettings";
 import { Trash } from "@/pages/Trash";
-import { Seed } from "@/pages/Seed";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,7 +59,7 @@ function AppRoutes() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/preise" element={<PriceSettings />} />
         <Route path="/settings/haeuser" element={<HouseSettingsPage />} />
-        <Route path="/seed" element={<Seed />} />
+        {/* /seed (Testdaten-Generator, src/pages/Seed.tsx) bewusst abgeschaltet — schreibt in die echte Datenbank. */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

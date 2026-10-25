@@ -1936,7 +1936,10 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
               )}
 
               {current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
-                <div className="border border-gray-200 rounded-lg p-4 grid grid-cols-2 gap-4">
+                <div className={`border border-gray-200 rounded-lg p-4 grid gap-4 ${isLegacyNumber ? "grid-cols-2" : "grid-cols-1"}`}>
+                  {/* "Eigene PDF" nur für Buchungen mit alter Nummer (außerhalb der App erstellte
+                      Bestätigungen) — bei neuen Rechnungen gilt allein die App-Rechnung (DATEV). */}
+                  {isLegacyNumber && (
                   <div className="space-y-2">
                     <span className="text-sm font-semibold text-gray-700">Eigene PDF</span>
                     {ownConfirmation && (
@@ -1957,6 +1960,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     </button>
                     {ownUploadError && <p className="text-xs text-red-600">{ownUploadError}</p>}
                   </div>
+                  )}
                   <div className="space-y-2">
                     <span className="text-sm font-semibold text-gray-700">Unterschriebene PDF</span>
                     {signedConfirmation && (
@@ -1977,7 +1981,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     </button>
                     {signedUploadError && <p className="text-xs text-red-600">{signedUploadError}</p>}
                   </div>
-                  <p className="col-span-2 text-xs text-gray-400">
+                  <p className={`${isLegacyNumber ? "col-span-2" : ""} text-xs text-gray-400`}>
                     PDF oder Foto (JPG/PNG) – Fotos werden automatisch verkleinert und in PDF umgewandelt. Jeder Upload wird als neue Version abgelegt.
                   </p>
                 </div>

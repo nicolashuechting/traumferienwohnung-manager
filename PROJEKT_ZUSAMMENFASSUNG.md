@@ -1,5 +1,7 @@
 # Traumferienwohnung Manager – Projektzusammenfassung
 
+> Kurzfassung der aktuellen Regeln für Claude: siehe `CLAUDE.md`. Stand dieser Datei: Okt. 2026.
+
 ## Was ist das?
 
 Eine Web-App zur Verwaltung von Ferienwohnungsbuchungen auf der Insel Baltrum (Nordsee). Der Besitzer verwaltet mehrere Wohnungen in zwei Häusern (Hus Upstalsboom, Haus Anne) und plant/trackt Buchungen, synchronisiert mit externen Buchungsplattformen und verschickt Buchungsbestätigungen als PDF. Mehrere Nutzer (Admin + Viewer/Vermieterin) arbeiten gemeinsam auf denselben Daten.
@@ -47,7 +49,7 @@ Hardcoded in `src/lib/properties.ts`, zwei Häuser:
 {
   id: string
   property_id: string
-  booking_number: string          // z.B. "UPS-2026-1234", vierstellig 1000–9999 (siehe unten)
+  booking_number: string          // neu: "AN-2027-0001"/"UB-2027-0001" (= Rechnungsnummer), alt: "ANNE-/UPS-JJJJ-NNNN" (siehe unten)
   status: BookingStatus           // siehe Workflow unten
   guest_name: string              // kombiniert, aus Vor-/Nachname abgeleitet — für Anzeige
   guest_first_name: string
@@ -64,7 +66,8 @@ Hardcoded in `src/lib/properties.ts`, zwei Häuser:
   check_out: string                // "YYYY-MM-DD" — Abreisetag, kein +1 (siehe unten)
   ferry_time: string               // Anreise-Fähre "HH:MM"
   ferry_time_departure: string     // Abreise-Fähre "HH:MM"
-  is_paid: boolean                 // bei status "storniert" wiederverwendet für "Stornogebühren bezahlt"
+  is_paid: boolean                 // NUR noch bei status "storniert" = "Stornogebühren bezahlt"; sonst gilt der Status (isPaid() in bookingStatus.ts)
+  invoice: BookingInvoice | null   // gesetzt nach "Endgültig erstellen": number, date, storagePath, gross/net/vat …
   adults: number
   children: number
   kinderAlter: number[]
@@ -163,7 +166,7 @@ Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if is
 | `/settings` | `Settings` | iCal, Export, Konto |
 | `/settings/preise` | `PriceSettings` | Saisonpreise je Wohnungsgruppe |
 | `/settings/haeuser` | `HouseSettingsPage` | Haus-Konfiguration (Adresse, Bankdaten, Kontakt-/Benachrichtigungs-E-Mail) |
-| `/seed` | `Seed` | Testdaten einfügen (nur Entwicklung) |
+| ~~`/seed`~~ | `Seed` | abgeschaltet (Route entfernt, Datei bleibt) — schrieb Testdaten in die echte DB |
 | `/login` | `Login` | Login, "Passwort vergessen?", Passwort ein-/ausblenden |
 | `/register` | `Register` | Registrierung (Whitelist-geschützt) |
 
@@ -179,14 +182,15 @@ Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if is
 ### SingleCalendarView (Einzelansicht)
 - Monatsraster, eine Wohnung, 2D-Grid, gleiche Drag&Drop-/Kollisionslogik wie oben
 
-### Fähr-Segment-System
-- 5 Tages-Segmente `[0, 9, 12, 15, 18]` Uhr, Buchungsbalken beginnen/enden je nach Fährzeit visuell im passenden Segment (`src/lib/daySegments.ts`)
+### Fähr-Segment-System (abgeschaltet)
+- Per Schalter `FERRY_TIMES_IN_CALENDAR = false` (`src/lib/features.ts`) aus: Balken beginnen immer 15:00 und enden 10:00. Code für die 5 Tages-Segmente `[0, 9, 12, 15, 18]` (`src/lib/daySegments.ts`) bleibt erhalten.
 - `check_out` ist der Abreisetag selbst, **kein** Tag danach — kritisch für Rendering und Kollisionsprüfung
 
 ---
 
-## iCal-Synchronisierung
+## iCal-Synchronisierung (abgeschaltet)
 
+- **Seit Okt. 2026 per Schalter `ICAL_IMPORT_ENABLED = false` (`src/lib/features.ts`) aus** — UI ausgeblendet, Sync blockiert, Code bleibt. Buchungen werden nur manuell angelegt; `source: "ical"`-Buchungen sind Altbestand.
 - Externe Plattformen (Ferienwohnungen.de, Baltrumdirekt.de, Airbnb, Booking.com) als iCal-Feed hinterlegbar, manuelles "Jetzt synchronisieren"
 - Importierte Buchungen: `source: "ical"`, `ical_uid` für Deduplizierung
 - Beim Resync werden Kontakt-/Adress-/Namensfelder bestehender iCal-Buchungen **nicht** überschrieben (nur Daten/Status kommen aus dem Feed)
@@ -194,8 +198,13 @@ Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if is
 
 ---
 
-## Buchungsbestätigung (PDF)
+## Buchungsbestätigung (PDF) = Rechnung
 
+- **Seit Okt. 2026 zugleich Rechnung** (DATEV): Titel „Buchungsbestätigung und Rechnung", Rechnungsdatum, 7 %-USt-Block (aus dem Bruttobetrag herausgerechnet), Steuernummer je Haus (`houseSettings.steuernummer`) in der Fußzeile.
+- Ablauf: „Vorschau" (ENTWURF-Aufdruck, nichts gespeichert) → „Endgültig erstellen" (einmalig: Nummer + Datum per Firestore-Transaktion festgeschrieben, PDF nach `rechnungen/<haus>/<JJJJ-MM>/<Nr>.pdf`). Danach sind rechnungsrelevante Felder gesperrt (Formular, Kalender-Drag, iCal, endgültiges Löschen); Notfall-Knopf „Sperre aufheben" wird in der Historie vermerkt. Unterschriebene PDFs: `unterschrieben/<haus>/<Nr>_unterschrieben.pdf`. Code: `src/lib/invoice.ts`.
+- Lokal (`npm run dev`) Testmodus: `TEST-`-Nummern, eigener Zähler `invoiceCountersTest`, Ordner `rechnungen-test/`, `unterschrieben-test/`.
+- Buchungen mit alter Nummer (ANNE-/UPS-) laufen weiter über die alte Bestätigung (ohne Rechnungsteil, Ablage `confirmations/{bookingId}/…`); nur dort gibt es noch „Eigene PDF hochladen".
+- Geplant (Schritt 2): Storno-, Zusatz- und Korrekturrechnungen in der App, Nummern aus demselben Zähler.
 - Erzeugt in `src/lib/pdfConfirmation.ts` (`generateConfirmationPdf`), aus dem BookingModal heraus ("Bestätigung erstellen")
 - Ein Template für beide Häuser, mit Verzweigungen anhand `house.id`/Preisgruppe (Anrede-Text, Babybett-Option nur bei Haus Anne)
 - GiroCode/EPC-QR-Code für die Überweisung (Banking-App scannt Empfänger/IBAN/Betrag/Verwendungszweck automatisch)
@@ -229,9 +238,10 @@ Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if is
 - **Automatisches tägliches Firestore-Backup** (Cloud Function, siehe unten) — zusätzliche, unabhängige Absicherung
 
 ### Buchungsnummern
-- Format `PREFIX-JAHR-NNNN` (`UPS`/`ANNE`), NNNN zufällig **1000–9999** (bewusst nicht ab 0001, damit die Nummer nicht verrät, die wievielte Buchung im Jahr es war), kollisionsfrei geprüft gegen bekannte Nummern (Prüfung läuft client-seitig — bei zwei gleichzeitigen Speicherungen für dasselbe Haus theoretisch nicht 100% garantiert, praktisch bei diesem Nutzerkreis vernachlässigbar)
+- **Neu (seit Okt. 2026):** `AN-<Anreisejahr>-0001` / `UB-<Anreisejahr>-0001`, fortlaufend je Haus und Jahr, = Rechnungsnummer. Vergabe erst beim endgültigen Erstellen der Bestätigung über einen zentralen Zähler (`houseSettings/<haus>.invoiceCounters`, Firestore-Transaktion). Kein automatisches Vergeben mehr beim Statuswechsel oder iCal-Import.
+- **Alt (bis Okt. 2026, bleibt auf bestehenden Buchungen):** Format `PREFIX-JAHR-NNNN` (`UPS`/`ANNE`), NNNN zufällig **1000–9999** (bewusst nicht ab 0001, damit die Nummer nicht verrät, die wievielte Buchung im Jahr es war), kollisionsfrei geprüft gegen bekannte Nummern (Prüfung läuft client-seitig — bei zwei gleichzeitigen Speicherungen für dasselbe Haus theoretisch nicht 100% garantiert, praktisch bei diesem Nutzerkreis vernachlässigbar)
 - Wird automatisch vergeben, sobald eine Buchung erstmals einen Status aus `NUMBERED_STATUSES` erreicht (`bestaetigt`, `vertrag_unterschrieben`, `bezahlt`, `problem`, `abgeschlossen`, `storniert`) — nicht für reine Anfragen/Reservierungen. Einmal vergeben bleibt die Nummer erhalten, auch bei späterem Zurücksetzen des Status. Wird sofort im Formular sichtbar, egal ob per Schnellaktion oder direktem Statuswechsel (auch bei übersprungenen Zwischenschritten).
-- `src/lib/bookingNumber.ts`
+- (`src/lib/bookingNumber.ts` entfernt — alte Nummern werden nicht mehr neu erzeugt)
 
 ### E-Mail-Benachrichtigung bei kurzfristigen Änderungen
 - Bei Buchungen, deren Aufenthalt sich mit "heute bis +10 Tage" überschneidet, UND relevante Felder geändert werden (Daten, Fährzeiten, Personen, Hund, Notizen) bzw. bei Neuanlage/Stornierung: Bestätigungsdialog ("Ja, senden"/"Nein") vor drei Aktionen — Speichern im BookingModal, Drag & Drop im Kalender (nach Drop), Löschen/Stornieren
@@ -255,7 +265,6 @@ Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if is
 - **Keine automatisierten Tests** — jede Änderung wird manuell verifiziert, kein Test-Suite vorhanden
 - **`firestore.rules` nicht versioniert** — nur in der Firebase Console, kein Diff/Rollback über Git möglich
 - **Keine Staging-/Test-Umgebung** — Entwicklung läuft direkt gegen die Produktiv-Datenbank (bewusst so belassen, siehe Session-Diskussion; Papierkorb/Historie/Backup fangen die meisten Risiken ab)
-- Automatische (statt manuelle) iCal-Synchronisierung
 - Analytics/Guests: Umfang deckt aktuelle Bedürfnisse, könnte aber noch wachsen
 
 ---
@@ -265,6 +274,6 @@ Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if is
 - `.env` darf NIE committed werden (`.gitignore` schützt sie); Firebase-Konfiguration nur über `VITE_FIREBASE_*`-Umgebungsvariablen
 - `check_out` ist der Abreisetag selbst, NICHT der Tag danach — kritisch für Drag & Drop, Kollisionsprüfung und Kalender-Erstellen-per-Ziehen
 - **Niemals `toISOString()` für lokale Kalendertage verwenden** — konvertiert nach UTC und verschiebt das Datum in Zeitzonen mit positivem UTC-Offset (Deutschland) um einen Tag zurück. Stattdessen lokale Y/M/D-Extraktion (`toLocalISO`-Helfer, mehrfach im Code vorhanden, z.B. `Calendar.tsx`, `SingleCalendarView.tsx`). Timestamps (`created_at`/`updated_at`/`last_synced`) sind davon ausgenommen — dort ist `toISOString()` korrekt, weil ein echter Zeitpunkt gemeint ist, kein Kalendertag.
-- `spansOverlap()` in `bookingDrag.ts` berücksichtigt Fährzeiten bei gemeinsamen Übergangstagen (Abreise + Anreise am selben Tag ist kein Konflikt, wenn die Segmente passen) und schließt stornierte Buchungen auf beiden Seiten aus
-- `STATUS_ORDER` (Vorwärts-/Rückwärts-Dialoge) und `NUMBERED_STATUSES` (Buchungsnummer-Vergabe) sind bewusst getrennte Listen in `bookingStatus.ts` — `storniert` steht in `STATUS_ORDER` nur aus Dialog-Gründen ganz hinten, das hat nichts mit der Nummernvergabe-Reihenfolge zu tun
+- `spansOverlap()` in `bookingDrag.ts`: Abreise + Anreise am selben Tag ist kein Konflikt (mit festen Zeiten 10:00/15:00 nie), stornierte Buchungen sind auf beiden Seiten ausgeschlossen
+- `STATUS_ORDER` (Vorwärts-/Rückwärts-Dialoge) und `NUMBERED_STATUSES` (ab wann eine Rechnung erstellt werden kann) sind bewusst getrennte Listen in `bookingStatus.ts` — `storniert` steht in `STATUS_ORDER` nur aus Dialog-Gründen ganz hinten, das hat nichts mit dieser Frage zu tun
 - Bankdaten/Kontaktdaten liegen ausschließlich in Firestore (`houseSettings`), nie im Quellcode

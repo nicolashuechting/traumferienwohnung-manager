@@ -1,5 +1,7 @@
 # Setup-Anleitung
 
+> **Veraltet:** beschreibt die erste Version (Ordner `frontend/`, inzwischen entfernt). Aktuelle App: `frontend-new/` — siehe `CLAUDE.md` und `PROJEKT_ZUSAMMENFASSUNG.md`.
+
 ## Voraussetzungen
 
 - Node.js 18+

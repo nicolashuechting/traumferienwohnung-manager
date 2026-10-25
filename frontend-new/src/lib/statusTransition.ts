@@ -1,5 +1,4 @@
-import { STATUS_ORDER, NUMBERED_STATUSES } from "@/lib/bookingStatus";
-import { generateBookingNumber } from "@/lib/bookingNumber";
+import { STATUS_ORDER } from "@/lib/bookingStatus";
 import type { BookingStatus } from "@/types";
 
 // Zentrale Rückfrage-Logik für Statuswechsel — jede Stelle, die den Status einer
@@ -21,18 +20,4 @@ export function confirmStatusTransition(from: BookingStatus, to: BookingStatus):
   if (to === "bestaetigt" && from !== "bestaetigt" &&
       !window.confirm('Buchung wird bestätigt. Jetzt ist der richtige Zeitpunkt, die Buchungsbestätigung per E-Mail zu verschicken. Falls du dafür gerade keine Zeit hast, lass die Buchung lieber auf "Reserviert" stehen.')) return false;
   return true;
-}
-
-// Vergibt eine Buchungsnummer, sobald `to` einen Status aus NUMBERED_STATUSES
-// erreicht und noch keine Nummer existiert — sonst bleibt die vorhandene erhalten.
-export function ensureBookingNumberFor(
-  currentNumber: string,
-  propertyId: string,
-  checkIn: string,
-  toStatus: BookingStatus,
-  existingNumbers: Iterable<string>,
-): string {
-  if (currentNumber) return currentNumber;
-  if (!NUMBERED_STATUSES.includes(toStatus)) return "";
-  return generateBookingNumber(propertyId, checkIn, existingNumbers);
 }
