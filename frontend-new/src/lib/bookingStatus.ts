@@ -87,6 +87,14 @@ export const NUMBERED_STATUSES: BookingStatus[] = [
   "bestaetigt", "vertrag_unterschrieben", "bezahlt", "problem", "abgeschlossen", "storniert",
 ];
 
+// "Bezahlt" ergibt sich aus dem Status (Bezahlt bzw. danach Abgeschlossen) — das frühere
+// Häkchen is_paid gilt nur noch bei stornierten Buchungen und bedeutet dort
+// "Stornogebühren bezahlt".
+export function isPaid(b: { status: BookingStatus; is_paid: boolean }): boolean {
+  if (b.status === "storniert") return b.is_paid;
+  return b.status === "bezahlt" || b.status === "abgeschlossen";
+}
+
 export function statusConfig(status: BookingStatus | undefined): StatusConfig {
   return STATUS_CONFIG[status ?? "anfrage"] ?? STATUS_CONFIG.anfrage;
 }

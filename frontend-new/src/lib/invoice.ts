@@ -116,13 +116,15 @@ export async function uploadInvoicePdf(invoice: BookingInvoice, bytes: Uint8Arra
   return getDownloadURL(storageRef);
 }
 
-// URL der gespeicherten Rechnung, oder null falls (noch) nicht hochgeladen.
-export async function getInvoiceUrl(invoice: BookingInvoice): Promise<string | null> {
-  try {
-    return await getDownloadURL(ref(storage, invoice.storagePath));
-  } catch {
-    return null;
-  }
+// URL der gespeicherten Rechnung; "missing" = Datei existiert nicht (Hochladen hat
+// nicht geklappt), "unreachable" = Speicher nicht erreichbar (z.B. Netz blockiert
+// firebasestorage.googleapis.com — die Anfrage hängt dann, statt zu scheitern).
+export async function getInvoiceUrl(invoice: BookingInvoice): Promise<string | "missing" | "unreachable"> {
+  const timeout = new Promise<"unreachable">((resolve) => setTimeout(() => resolve("unreachable"), 12000));
+  const lookup = getDownloadURL(ref(storage, invoice.storagePath)).catch((e: { code?: string }) =>
+    e?.code === "storage/object-not-found" ? "missing" as const : "unreachable" as const,
+  );
+  return Promise.race([lookup, timeout]);
 }
 
 // Unterschriebene Bestätigung: <Nummer>_unterschrieben.pdf, bei weiteren Uploads _2, _3 …

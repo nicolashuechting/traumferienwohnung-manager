@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Calendar, TrendingUp, Home, Euro } from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
 import { properties } from "@/lib/properties";
+import { isPaid } from "@/lib/bookingStatus";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, ResponsiveContainer, Legend,
@@ -15,7 +16,7 @@ export function Dashboard() {
   const stats = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
     const active = bookings.filter((b) => b.check_in <= today && b.check_out > today);
-    const unpaid = bookings.filter((b) => !b.is_paid);
+    const unpaid = bookings.filter((b) => !isPaid(b));
 
     const byMonth: Record<string, number> = {};
     bookings.forEach((b) => {
@@ -144,8 +145,8 @@ export function Dashboard() {
                       <p className="text-xs text-gray-500">{prop?.name} · {b.check_in} – {b.check_out}</p>
                     </div>
                     <span className={`text-xs font-medium px-2 py-1 rounded-full
-                      ${b.is_paid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                      {b.is_paid ? "Bezahlt" : "Offen"}
+                      ${isPaid(b) ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                      {isPaid(b) ? "Bezahlt" : "Offen"}
                     </span>
                   </div>
                 );

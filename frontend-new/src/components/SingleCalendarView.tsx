@@ -5,7 +5,7 @@ import {
 } from "@dnd-kit/core";
 // DragOverlay entfernt — Live-Vorschau erfolgt direkt im Raster über previewDates-State
 import { Star } from "lucide-react";
-import { statusConfig, CONFIRMED_STATUSES } from "@/lib/bookingStatus";
+import { statusConfig, CONFIRMED_STATUSES, isPaid } from "@/lib/bookingStatus";
 import { useUpdateBooking } from "@/hooks/useBookings";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
@@ -287,7 +287,7 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
       {bar.showName && nameW < MIN_NAME_W && (
         <span className="truncate min-w-0 text-[10px]">{bar.booking.guest_name.split(" ").pop()}</span>
       )}
-      {bar.showName && !bar.booking.is_paid && (
+      {bar.showName && !isPaid(bar.booking) && (
         <span className="flex-shrink-0 bg-black/20 rounded px-0.5 text-[9px] font-normal ml-auto">€?</span>
       )}
     </button>

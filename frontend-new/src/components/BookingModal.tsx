@@ -480,7 +480,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const [pdfAfterSave, setPdfAfterSave] = useState<PdfAction | false>(false);
   // Endgültige Rechnung: URL der gespeicherten PDF (null = noch nicht/nicht mehr auffindbar)
   const [invoiceUrl, setInvoiceUrl] = useState<string | null>(null);
-  const [invoiceUrlChecked, setInvoiceUrlChecked] = useState(false);
+  // "idle" = noch nicht geprüft/läuft, "missing" = Datei fehlt, "unreachable" = Speicher nicht erreichbar
+  const [invoiceUrlState, setInvoiceUrlState] = useState<"idle" | "ok" | "missing" | "unreachable">("idle");
   // Notfall-Knopf "Sperre aufheben" (gilt nur für die aktuelle Bearbeitung)
   const [unlockInvoice, setUnlockInvoice] = useState(false);
   const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
@@ -568,8 +569,11 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       setForm(loadedForm);
       setMode("edit");
     }
-    lastPriceTriggerKey.current = priceTriggerKeyOf(loadedForm);
-    lastDateKey.current = dateKeyOf(loadedForm);
+    // Bestehende Buchung: Preis beim Öffnen NICHT neu berechnen (gespeicherter Preis gilt).
+    // Neue Buchung: leerer Bezugswert → Preis wird sofort berechnet, sobald Wohnung und
+    // Zeitraum feststehen (auch wenn die Preisdaten erst nach dem Öffnen geladen sind).
+    lastPriceTriggerKey.current = booking ? priceTriggerKeyOf(loadedForm) : "";
+    lastDateKey.current = booking ? dateKeyOf(loadedForm) : "";
     setError("");
     setNumberCopied(false);
     setPdfError("");
@@ -594,7 +598,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setPendingCollision(null);
     setPdfAfterSave(false);
     setInvoiceUrl(null);
-    setInvoiceUrlChecked(false);
+    setInvoiceUrlState("idle");
     setUnlockInvoice(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
@@ -637,10 +641,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       })
       .catch(() => {});
     if (booking.invoice) {
-      getInvoiceUrl(booking.invoice).then((url) => {
-        if (cancelled) return;
-        setInvoiceUrl(url);
-        setInvoiceUrlChecked(true);
+      getInvoiceUrl(booking.invoice).then((result) => {
+        if (!cancelled) applyInvoiceLookup(result);
       });
     }
     return () => {
@@ -656,10 +658,12 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   // der PDF-Bestätigung sichtbar). Eine aktive Übernachtungspreis-Override-Rate (siehe
   // PriceSection) wird dabei auf die neue Nächteliste übertragen statt verworfen.
   useEffect(() => {
+    // Ohne Preisdaten (noch nicht geladen / Zeitraum unvollständig) den Bezugswert nicht
+    // "verbrauchen" — sonst würde nach dem Laden nie mehr automatisch gerechnet.
+    if (!autoResult) return;
     const key = priceTriggerKeyOf(form);
     if (key === lastPriceTriggerKey.current) return;
     lastPriceTriggerKey.current = key;
-    if (!autoResult) return;
 
     const dateKey = dateKeyOf(form);
     const datesChanged = dateKey !== lastDateKey.current;
@@ -695,6 +699,22 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.property_id, form.check_in, form.check_out, form.adults, form.children, form.dogCount, autoResult]);
+
+  function applyInvoiceLookup(result: string) {
+    if (result === "missing" || result === "unreachable") {
+      setInvoiceUrl(null);
+      setInvoiceUrlState(result);
+    } else {
+      setInvoiceUrl(result);
+      setInvoiceUrlState("ok");
+    }
+  }
+
+  const recheckInvoiceUrl = async () => {
+    if (!current?.invoice) return;
+    setInvoiceUrlState("idle");
+    applyInvoiceLookup(await getInvoiceUrl(current.invoice));
+  };
 
   // Rechnung endgültig erstellt → rechnungsrelevante Felder gesperrt (außer per Notfall-Knopf).
   const invoice: BookingInvoice | null = current?.invoice ?? null;
@@ -915,9 +935,9 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setPdfSaving(true);
     try {
       setInvoiceUrl(await withTimeout(uploadInvoicePdf(inv, bytes), 20000));
-      setInvoiceUrlChecked(true);
+      setInvoiceUrlState("ok");
     } catch (e) {
-      setInvoiceUrlChecked(true);
+      setInvoiceUrlState("missing");
       setPdfUploadError(`Die Rechnung wurde NICHT im Speicher abgelegt (${(e as Error).message}). Bitte auf „Erneut speichern" klicken.`);
     } finally {
       setPdfSaving(false);
@@ -1410,9 +1430,9 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 {current.status === "storniert" && (
                   <ViewRow label="Stornogebühren">{current.cancellationFee.toLocaleString("de-DE")} €</ViewRow>
                 )}
-                <ViewRow label={current.status === "storniert" ? "Stornogebühren bezahlt" : "Bezahlt"}>
-                  {current.is_paid ? "Ja" : "Nein"}
-                </ViewRow>
+                {current.status === "storniert" && (
+                  <ViewRow label="Stornogebühren bezahlt">{current.is_paid ? "Ja" : "Nein"}</ViewRow>
+                )}
                 <ViewRow label="Personen">
                   {persons} {current.children > 0 && <span className="text-gray-400">({current.adults} Erw. + {current.children} Ki.)</span>}
                 </ViewRow>
@@ -1717,12 +1737,6 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                   <input type="number" min={0} max={20} value={form.children} onChange={(e) => setChildrenCount(parseInt(e.target.value) || 0)} disabled={invoiceLocked} className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-500`} />
                 </div>
                 <div className="flex flex-col justify-end gap-2 pb-1">
-                  {form.status !== "storniert" && (
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} className="w-4 h-4 rounded" />
-                      <span className="text-sm font-medium text-gray-700">Bezahlt ✓</span>
-                    </label>
-                  )}
                   <label className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-700">Hund 🐕</span>
                     <select
@@ -1806,6 +1820,13 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 </label>
               </div>
 
+              {!current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
+                <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                  Die Buchungsbestätigung kann erstellt werden, sobald die Buchung gespeichert ist – bitte oben auf „Hinzufügen" klicken
+                  und die Buchung danach wieder öffnen.
+                </p>
+              )}
+
               {current && form.status !== "anfrage" && form.status !== "reserviert" && form.status !== "problem" && (
                 <div className="border border-gray-200 rounded-lg p-4 space-y-3">
                   <span className="text-sm font-semibold text-gray-700">
@@ -1839,7 +1860,18 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                       )}
                     </p>
                   )}
-                  {invoice && invoiceUrlChecked && !invoiceUrl && !pdfSaving && (
+                  {invoice && invoiceUrlState === "idle" && !pdfSaving && (
+                    <p className="text-xs text-gray-500">Rechnung wird aus dem Speicher geladen…</p>
+                  )}
+                  {invoice && invoiceUrlState === "unreachable" && !pdfSaving && (
+                    <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-center justify-between gap-3">
+                      <span>Der Speicher ist gerade nicht erreichbar – oft blockiert das WLAN ihn (z.B. eduroam). Bitte anderes Netz/Hotspot nutzen.</span>
+                      <button type="button" onClick={recheckInvoiceUrl} className="px-3 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded whitespace-nowrap">
+                        Nochmal prüfen
+                      </button>
+                    </div>
+                  )}
+                  {invoice && invoiceUrlState === "missing" && !pdfSaving && (
                     <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center justify-between gap-3">
                       <span>Die PDF zu dieser Rechnung fehlt im Speicher.</span>
                       <button type="button" onClick={handleRetryStoreInvoice} disabled={pdfLoading} className="px-3 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded disabled:opacity-50">

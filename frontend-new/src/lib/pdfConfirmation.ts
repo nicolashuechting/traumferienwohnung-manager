@@ -476,7 +476,7 @@ export async function generateConfirmationPdf(
   // 7. Kundendaten-Block
   // Leere Angaben bekommen ein ausfüllbares Feld mit Schreiblinie — alle Linien beginnen
   // bündig an derselben Stelle (hinter dem längsten Label) und reichen bis zum rechten Rand.
-  const blankFieldX = MARGIN + fonts.regular.widthOfTextAtSize("Telefonnummer:", FONT_SIZE) + 6;
+  const blankFieldX = MARGIN + fonts.regular.widthOfTextAtSize("Ihre Anschrift:", FONT_SIZE) + 6;
   const drawBlankField = (label: string) => {
     cursor.ensureSpace(LINE_H + 4);
     cursor.page.drawText(label, { x: MARGIN, y: cursor.y - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
@@ -497,10 +497,28 @@ export async function generateConfirmationPdf(
     cursor.paragraph(`Ihre Anschrift: ${addressText}`);
   }
   cursor.gap(4);
-  if (!booking.phone) {
-    drawBlankField("Telefonnummer:");
-  } else {
-    cursor.paragraph(`Telefonnummer: ${booking.phone}`);
+  // Telefon in einer Zeile: links Mobil, rechts Festnetz — jeweils Nummer oder Schreibfeld.
+  {
+    cursor.ensureSpace(LINE_H + 4);
+    const rowY = cursor.y;
+    const rightX = MARGIN + CONTENT_W / 2 + 10;
+    const drawPhone = (label: string, value: string, x: number, blankX: number, endX: number) => {
+      cursor.page.drawText(label, { x, y: rowY - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+      const labelEnd = x + fonts.regular.widthOfTextAtSize(label, FONT_SIZE);
+      if (value) {
+        cursor.page.drawText(value, { x: labelEnd + 4, y: rowY - FONT_SIZE, size: FONT_SIZE, font: fonts.regular });
+        return;
+      }
+      const fx = Math.max(blankX, labelEnd + 6);
+      drawInteractiveTextField(cursor, fx, rowY, endX - fx, 13);
+      cursor.page.drawLine({
+        start: { x: fx, y: rowY - 14 }, end: { x: endX, y: rowY - 14 },
+        thickness: 0.5, color: rgb(0.5, 0.5, 0.5),
+      });
+    };
+    drawPhone("Mobil:", booking.phone, MARGIN, blankFieldX, rightX - 14);
+    drawPhone("Festnetz:", booking.landline ?? "", rightX, 0, PAGE_W - MARGIN);
+    cursor.y -= booking.phone && booking.landline ? LINE_H : LINE_H + 4;
   }
   if (!booking.email) {
     drawBlankField("E-Mail:");

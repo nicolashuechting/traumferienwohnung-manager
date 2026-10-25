@@ -11,7 +11,7 @@ import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
-import { statusConfig } from "@/lib/bookingStatus";
+import { statusConfig, isPaid } from "@/lib/bookingStatus";
 import type { Booking } from "@/types";
 
 // ── Status badge ─────────────────────────────────────────────────────────────
@@ -249,8 +249,8 @@ export function Bookings() {
     if (dateTo)   list = list.filter((b) => b.check_in  <= dateTo);
 
     // Paid filter
-    if (filters.paid === "paid")   list = list.filter((b) => b.is_paid);
-    if (filters.paid === "unpaid") list = list.filter((b) => !b.is_paid);
+    if (filters.paid === "paid")   list = list.filter((b) => isPaid(b));
+    if (filters.paid === "unpaid") list = list.filter((b) => !isPaid(b));
 
     // Search
     if (filters.search.trim()) {
@@ -572,7 +572,7 @@ export function Bookings() {
                           : b.price > 0 ? `${b.price.toLocaleString("de-DE")} €` : "–"}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={b.status} /></td>
-                      <td className="px-3 py-3 text-center"><Checkbox checked={b.is_paid} /></td>
+                      <td className="px-3 py-3 text-center"><Checkbox checked={isPaid(b)} /></td>
                       <td className="px-3 py-3 text-gray-400">
                         {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </td>

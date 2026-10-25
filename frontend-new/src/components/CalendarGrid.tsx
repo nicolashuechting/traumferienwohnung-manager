@@ -5,7 +5,7 @@ import {
   type DragStartEvent, type DragMoveEvent, type DragEndEvent, type Modifier,
 } from "@dnd-kit/core";
 import { properties } from "@/lib/properties";
-import { statusConfig, CONFIRMED_STATUSES } from "@/lib/bookingStatus";
+import { statusConfig, CONFIRMED_STATUSES, isPaid } from "@/lib/bookingStatus";
 import { useUpdateBooking } from "@/hooks/useBookings";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
@@ -119,7 +119,7 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
           {isConflict && <span className="flex-shrink-0 text-[10px]">⚠</span>}
           {isStammgast && <Star className="w-2.5 h-2.5 flex-shrink-0 fill-white" />}
           <span className="truncate min-w-0">{booking.guest_name}</span>
-          {!booking.is_paid && (
+          {!isPaid(booking) && (
             <span className="flex-shrink-0 bg-black/20 rounded px-1 text-[9px] font-normal ml-auto">€?</span>
           )}
         </>

@@ -1,4 +1,5 @@
 import type { Booking, BookingStatus, NotificationRuleKey, NotificationSettings, NotificationSnooze, NotificationUrgency } from "@/types";
+import { isPaid } from "@/lib/bookingStatus";
 
 // Keine dauerhaft gespeicherten Benachrichtigungs-Objekte — computeNotifications()
 // leitet den kompletten Zustand bei jedem Aufruf live aus den Buchungen ab. Eine
@@ -94,7 +95,7 @@ function ruleAnfrageOffen(b: Booking, s: NotificationSettings): AppNotification 
 }
 
 function ruleZahlungOffen(b: Booking, s: NotificationSettings): AppNotification | null {
-  if (b.is_paid || b.status === "storniert" || b.status === "abgeschlossen") return null;
+  if (isPaid(b) || b.status === "storniert") return null;
   const days = daysUntil(b.check_in);
   if (days === null || days > s.zahlungOffenTage) return null;
   const urgency: NotificationUrgency = days <= Math.floor(s.zahlungOffenTage / 2) ? "overdue" : "soon";
