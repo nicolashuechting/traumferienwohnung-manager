@@ -13,6 +13,7 @@ import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
 import { statusConfig, isPaid } from "@/lib/bookingStatus";
 import type { Booking } from "@/types";
+import { ICAL_IMPORT_ENABLED } from "@/lib/features";
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: Booking["status"] }) {
@@ -324,7 +325,7 @@ export function Bookings() {
                 {syncMsg}
               </span>
             )}
-            {feeds.length > 0 && !isViewer && (
+            {ICAL_IMPORT_ENABLED && feeds.length > 0 && !isViewer && (
               <button
                 onClick={handleSync}
                 disabled={syncFeeds.isPending}

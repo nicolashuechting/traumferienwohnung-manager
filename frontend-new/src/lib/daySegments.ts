@@ -1,4 +1,8 @@
+import { FERRY_TIMES_IN_CALENDAR, FIXED_CHECK_IN_HOUR, FIXED_CHECK_OUT_HOUR } from "@/lib/features";
+
 // Zeit-Segmente für die visuelle An-/Abreise-Darstellung im Kalender.
+// Derzeit abgeschaltet (FERRY_TIMES_IN_CALENDAR = false): dann gelten feste Zeiten —
+// Anreise 15:00, Abreise 10:00 — unabhängig von der gewählten Fähre.
 // Jeder Tag wird optisch in 5 Segmente unterteilt; eine Buchung beginnt/endet
 // in dem Segment, in das ihre Fährzeit fällt (nicht auf die Minute genau).
 export const SEGMENT_START_HOUR = [0, 9, 12, 15, 18] as const; // Segment 1..5, je 0-indiziert
@@ -26,10 +30,12 @@ export function segmentFraction(segmentIndex: number): number {
 
 /** Bruchteil des Tages, an dem eine Buchung anhand ihrer Anreise-Fährzeit visuell beginnt. */
 export function arrivalFraction(ferryTime: string | null | undefined): number {
+  if (!FERRY_TIMES_IN_CALENDAR) return FIXED_CHECK_IN_HOUR / 24;
   return segmentFraction(segmentIndexOf(ferryTime));
 }
 
 /** Bruchteil des Tages, an dem eine Buchung anhand ihrer Abreise-Fährzeit visuell endet. */
 export function departureFraction(ferryTimeDeparture: string | null | undefined): number {
+  if (!FERRY_TIMES_IN_CALENDAR) return FIXED_CHECK_OUT_HOUR / 24;
   return segmentFraction(segmentIndexOf(ferryTimeDeparture));
 }

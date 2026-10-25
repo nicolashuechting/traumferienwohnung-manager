@@ -13,6 +13,7 @@ import { downloadBackup } from "@/lib/backupExport";
 import { useNotificationSettings, useUpdateNotificationSettings } from "@/hooks/useNotificationSettings";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
 import type { NotificationSettings } from "@/types";
+import { ICAL_IMPORT_ENABLED } from "@/lib/features";
 
 function fmtSync(iso: string) {
   if (!iso) return "Noch nie";
@@ -230,7 +231,8 @@ export function Settings() {
         )}
       </div>
 
-      {/* ── iCal-Synchronisierung ── */}
+      {/* ── iCal-Synchronisierung (abgeschaltet, siehe src/lib/features.ts) ── */}
+      {ICAL_IMPORT_ENABLED && (
       <div className="bg-white rounded-xl border border-gray-200">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div>
@@ -382,6 +384,7 @@ export function Settings() {
           )}
         </div>
       </div>
+      )}
       </div>
     </div>
   );

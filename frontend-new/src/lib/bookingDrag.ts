@@ -1,5 +1,5 @@
 import type { Booking, BookingStatus } from "@/types";
-import { segmentIndexOf } from "@/lib/daySegments";
+import { arrivalFraction, departureFraction } from "@/lib/daySegments";
 
 // ── Datums-Helfer ────────────────────────────────────────────────────────────
 // WICHTIG: niemals über toISOString() formatieren — das konvertiert nach UTC und
@@ -69,15 +69,15 @@ interface StaySpan {
 
 // Überschneiden sich zwei Zeiträume [check_in, check_out)? Bei einem gemeinsamen
 // Übergangstag (eine Buchung reist ab, am selben Tag reist die andere an) zählt
-// das NUR als Kollision, wenn die Abreise NACH der Anreise-Fährzeit liegt
-// (gleiches oder früheres Segment = saubere Übergabe, keine Kollision).
+// das NUR als Kollision, wenn die Abreise NACH der Anreise liegt. Mit festen Zeiten
+// (Abreise 10:00, Anreise 15:00, siehe features.ts) ist ein Wechseltag also nie eine Kollision.
 export function spansOverlap(a: StaySpan, b: StaySpan): boolean {
   if (a.check_in < b.check_out && a.check_out > b.check_in) return true;
   if (a.check_out === b.check_in) {
-    return segmentIndexOf(a.ferry_time_departure) > segmentIndexOf(b.ferry_time);
+    return departureFraction(a.ferry_time_departure) > arrivalFraction(b.ferry_time);
   }
   if (b.check_out === a.check_in) {
-    return segmentIndexOf(b.ferry_time_departure) > segmentIndexOf(a.ferry_time);
+    return departureFraction(b.ferry_time_departure) > arrivalFraction(a.ferry_time);
   }
   return false;
 }

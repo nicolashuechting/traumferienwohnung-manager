@@ -6,6 +6,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { fetchIcal } from "@/lib/ical";
+import { ICAL_IMPORT_ENABLED } from "@/lib/features";
 import type { IcalFeed, Booking } from "@/types";
 
 // ── Feed CRUD ──────────────────────────────────────────────────────────────────
@@ -186,6 +187,7 @@ export function useSyncIcalFeeds() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (feeds: IcalFeed[]) => {
+      if (!ICAL_IMPORT_ENABLED) throw new Error("Der iCal-Import ist abgeschaltet (siehe src/lib/features.ts).");
       const results = await Promise.all(feeds.map(syncFeed));
       return results;
     },
