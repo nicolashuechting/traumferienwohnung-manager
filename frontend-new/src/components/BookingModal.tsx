@@ -394,7 +394,9 @@ function PriceSection({
           placeholder="€/Nacht"
           className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50 disabled:bg-gray-100"
         />
-        {autoResult && (form.priceIsManual || overrideActive) && (
+        {/* Auch anzeigen, wenn der eingetragene Preis vom berechneten abweicht (z.B. noch 0 €) —
+            so gibt es immer einen sichtbaren Weg zum korrekten Preis. */}
+        {autoResult && (form.priceIsManual || overrideActive || form.price !== autoResult.total) && (
           <button
             type="button"
             onClick={handleRecalculate}
