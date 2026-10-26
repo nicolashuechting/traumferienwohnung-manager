@@ -36,7 +36,10 @@ export function Layout() {
       <aside className={`${open ? "w-56" : "w-16"} bg-gradient-to-b from-blue-900 to-blue-800 text-white transition-all duration-200 flex flex-col flex-shrink-0`}>
         <div className="h-14 flex items-center justify-between px-3 border-b border-blue-700">
           {open && (
-            <span className="font-bold text-sm truncate">Traumferienwohnung</span>
+            <span className="flex items-center gap-2 min-w-0">
+              <img src="/favicon.svg" alt="" className="w-7 h-7 rounded-md ring-1 ring-white/20 flex-shrink-0" />
+              <span className="font-bold text-sm truncate">Traumferienwohnung</span>
+            </span>
           )}
           <button onClick={() => setOpen(!open)} className="p-1.5 hover:bg-blue-700 rounded-lg transition flex-shrink-0">
             {open ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}

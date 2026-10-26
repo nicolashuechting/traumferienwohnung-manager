@@ -43,9 +43,7 @@ export function Register() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl mx-auto mb-4 flex items-center justify-center">
-            <span className="text-white text-xl font-bold">T</span>
-          </div>
+          <img src="/favicon.svg" alt="" className="w-16 h-16 mx-auto mb-4 rounded-2xl shadow-md" />
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Traumferienwohnung Manager</h1>
         </div>
 
