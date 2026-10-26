@@ -41,10 +41,11 @@ import { priceGroupOf } from "@/lib/priceGroups";
 import { calculatePrice, type PriceResult } from "@/lib/pricing";
 import { BookingHistoryPanel } from "@/components/BookingHistoryPanel";
 import { NotifyDialog } from "@/components/NotifyDialog";
+import { useCorrectionNotes, useCreateCorrectionNote, appendNoteChanges } from "@/hooks/useCorrectionNotes";
 import { shouldNotify } from "@/lib/bookingNotify";
 import { sendChangeNotification } from "@/lib/notifyEmail";
 import { INVOICE_LOCKED_FIELDS } from "@/types";
-import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId, HouseSettings, Guest, BookingInvoice } from "@/types";
+import type { Booking, BookingFormData, BookingStatus, FieldChange, BookingHistoryEntry, PriceBreakdown, HouseId, HouseSettings, Guest, BookingInvoice, CorrectionNote } from "@/types";
 
 // Gesperrte Rechnungsfelder grau darstellen (fieldset mit display: contents, damit das
 // Grid-Layout der Felder unverändert bleibt).
@@ -456,6 +457,24 @@ function PriceSection({
   );
 }
 
+// Korrektur-Notizen zu einer Buchung (Details und Erledigen auf der Seite "Korrekturen").
+function BookingNotesBox({ notes }: { notes: CorrectionNote[] }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm space-y-1.5">
+      <p className="text-xs font-semibold text-amber-800">Korrektur-Notizen ({notes.filter((n) => n.status === "offen").length} offen)</p>
+      {notes.map((n) => (
+        <div key={n.id} className="text-xs text-gray-700">
+          <span className={`font-semibold ${n.status === "offen" ? "text-amber-800" : "text-emerald-700"}`}>
+            {n.status === "offen" ? "Offen" : "Erledigt"}
+          </span>
+          {" · "}{n.created_at ? new Date(n.created_at).toLocaleDateString("de-DE") : ""} · {n.created_by_name || n.created_by}: {n.text}
+          {n.status === "erledigt" && n.resolution_note && <span className="text-emerald-700"> → {n.resolution_note}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Read-only Zeile in der Anzeige
 function ViewRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -488,6 +507,13 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const [invoiceUrlState, setInvoiceUrlState] = useState<"idle" | "ok" | "missing" | "unreachable">("idle");
   // Notfall-Knopf "Sperre aufheben" (gilt nur für die aktuelle Bearbeitung)
   const [unlockInvoice, setUnlockInvoice] = useState(false);
+  // Pflicht-Notiz beim Aufheben der Sperre (landet unter "Korrekturen")
+  const [showUnlockDialog, setShowUnlockDialog] = useState(false);
+  const [unlockText, setUnlockText] = useState("");
+  const [unlockError, setUnlockError] = useState("");
+  const [unlockNoteId, setUnlockNoteId] = useState<string | null>(null);
+  const { data: correctionNotes = [] } = useCorrectionNotes();
+  const createNote = useCreateCorrectionNote();
   const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
   const [guestSuggestion, setGuestSuggestion] = useState<Guest | null>(null);
   // Sperre (z.B. Familie) statt Buchung — eigenes, schlankes Formular (BlockModal)
@@ -607,6 +633,10 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setInvoiceUrl(null);
     setInvoiceUrlState("idle");
     setUnlockInvoice(false);
+    setShowUnlockDialog(false);
+    setUnlockText("");
+    setUnlockError("");
+    setUnlockNoteId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking, prefill]);
 
@@ -706,6 +736,20 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.property_id, form.check_in, form.check_out, form.adults, form.children, form.dogCount, autoResult]);
 
+  const confirmUnlock = async () => {
+    if (!current) return;
+    if (!unlockText.trim()) { setUnlockError("Bitte beschreiben, was geändert wird und warum."); return; }
+    setUnlockError("");
+    try {
+      const id = await createNote.mutateAsync({ booking: current, text: unlockText, source: "sperre" });
+      setUnlockNoteId(id);
+      setUnlockInvoice(true);
+      setShowUnlockDialog(false);
+    } catch (e) {
+      setUnlockError(`Notiz konnte nicht gespeichert werden – Sperre bleibt bestehen. (${(e as Error).message})`);
+    }
+  };
+
   function applyInvoiceLookup(result: string) {
     if (result === "missing" || result === "unreachable") {
       setInvoiceUrl(null);
@@ -725,6 +769,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   // Rechnung endgültig erstellt → rechnungsrelevante Felder gesperrt (außer per Notfall-Knopf).
   const invoice: BookingInvoice | null = current?.invoice ?? null;
   const invoiceLocked = !!invoice && !unlockInvoice;
+  const bookingNotes = current ? correctionNotes.filter((n) => n.booking_id === current.id) : [];
   // Buchungen mit alter (ANNE-/UPS-)Nummer behalten die bisherige Bestätigung ohne Rechnungsteil.
   const isLegacyNumber = !invoice && !!current?.booking_number && !isInvoiceNumber(current.booking_number);
 
@@ -1240,12 +1285,20 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
           history: {
             changes,
             note: unlockInvoice && current.invoice
-              ? `Rechnungssperre aufgehoben – Rechnung ${current.invoice.number} passt evtl. nicht mehr zur Buchung`
+              ? `Rechnungssperre aufgehoben – Rechnung ${current.invoice.number} passt evtl. nicht mehr zur Buchung (siehe Korrekturen)`
               : undefined,
           },
           unlockInvoice,
         });
+        if (unlockInvoice && unlockNoteId) {
+          // Tatsächlich geänderte Felder an die Korrektur-Notiz anhängen (best-effort).
+          const lines = changes.map((c) => `${fieldLabel(c.field)}: ${formatFieldValue(c.field, c.from)} → ${formatFieldValue(c.field, c.to)}`);
+          appendNoteChanges(unlockNoteId, lines)
+            .then(() => qc.invalidateQueries({ queryKey: ["correctionNotes"] }))
+            .catch((e) => console.warn("Änderungen konnten nicht an die Notiz angehängt werden:", e));
+        }
         setUnlockInvoice(false);
+        setUnlockNoteId(null);
         if (data.email) {
           await upsertGuestFields(houseIdOf(data.property_id ?? current.property_id), data.email, { personNotes, marketingConsent, isRegularGuest });
           qc.invalidateQueries({ queryKey: ["guests"] });
@@ -1425,6 +1478,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
               </div>
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                {bookingNotes.length > 0 && <div className="col-span-2"><BookingNotesBox notes={bookingNotes} /></div>}
                 <ViewRow label="Wohnung">{formatFieldValue("property_id", current.property_id)}</ViewRow>
                 <ViewRow label="Gast">
                   <span className="inline-flex items-center gap-1.5">
@@ -1601,17 +1655,12 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" />
                     {invoiceLocked
                       ? <span>Rechnung <span className="font-mono font-semibold">{invoice.number}</span> ist erstellt – Name, Anschrift, Wohnung, Zeitraum, Personen und Preis sind gesperrt.</span>
-                      : <span>Sperre aufgehoben – Änderungen passen danach nicht mehr zur Rechnung {invoice.number}. Bitte notieren!</span>}
+                      : <span>Sperre aufgehoben – Änderungen passen danach nicht mehr zur Rechnung {invoice.number}. Die Notiz steht unter „Korrekturen"; geänderte Felder werden beim Speichern automatisch ergänzt.</span>}
                   </span>
                   {invoiceLocked && (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm(
-                          "Sperre wirklich aufheben?\n\nDie Rechnung " + invoice.number + " bleibt unverändert. Änderungen an der Buchung passen danach " +
-                          "nicht mehr zur Rechnung – das wird in der Historie vermerkt. Bitte den Fall notieren, damit er später per Storno korrigiert werden kann.",
-                        )) setUnlockInvoice(true);
-                      }}
+                      onClick={() => { setUnlockText(""); setUnlockError(""); setShowUnlockDialog(true); }}
                       className="text-xs font-medium text-red-700 hover:text-red-800 underline whitespace-nowrap"
                     >
                       Sperre aufheben
@@ -1619,6 +1668,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                   )}
                 </div>
               )}
+
+              {bookingNotes.length > 0 && <BookingNotesBox notes={bookingNotes} />}
 
               <fieldset disabled={invoiceLocked} className={LOCK_FIELDSET_CLS}>
               <div className="grid grid-cols-[2fr_1fr_2fr_2fr] gap-4">
@@ -2059,6 +2110,39 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         )}
 
         {/* ── Overlay: Änderungen bestätigen ── */}
+        {showUnlockDialog && invoice && (
+          <div className="absolute inset-0 z-30 bg-black/30 flex items-center justify-center rounded-xl p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-3">
+              <h3 className="text-base font-bold text-gray-900">Sperre aufheben</h3>
+              <p className="text-sm text-gray-600">
+                Die Rechnung <span className="font-mono font-semibold">{invoice.number}</span> bleibt unverändert. Änderungen an der Buchung
+                passen danach nicht mehr zu ihr und müssen später per Storno/Zusatzrechnung korrigiert werden. Deine Notiz erscheint
+                für alle unter „Korrekturen".
+              </p>
+              <label className="block text-xs font-medium text-gray-600">Was wird geändert und warum? *</label>
+              <textarea
+                value={unlockText}
+                onChange={(e) => setUnlockText(e.target.value)}
+                rows={3}
+                autoFocus
+                placeholder="z.B. Gast reist 2 Tage früher ab, Preis sinkt auf 310 €"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+              />
+              {unlockError && <p className="text-sm text-red-600">{unlockError}</p>}
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowUnlockDialog(false)} disabled={createNote.isPending}
+                  className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-50">
+                  Abbrechen
+                </button>
+                <button onClick={confirmUnlock} disabled={createNote.isPending || !unlockText.trim()}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50">
+                  {createNote.isPending ? "Speichert…" : "Notiz speichern & Sperre aufheben"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showSaveDiff && pendingSave && (
           <div className="absolute inset-0 z-30 bg-black/30 flex items-center justify-center rounded-xl p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5">

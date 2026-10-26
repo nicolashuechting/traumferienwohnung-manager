@@ -1,17 +1,30 @@
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 
-// Alle Firestore-Collections dieses Projekts: "bookings" (mit history-Subcollection
-// pro Buchung) und "icalFeeds". Es gibt keine eigene "guests"-Collection — Gäste
-// werden in der App nur virtuell aus den Buchungen aggregiert, brauchen also keinen
-// eigenen Export-Schritt.
+// Export der Firestore-Daten: ALLE Buchungen (mit history-Subcollection pro Buchung,
+// unabhängig davon, wer sie angelegt hat), iCal-Feeds sowie Gäste, Korrektur-Notizen,
+// Haus- und Preis-Einstellungen. (Bis Okt. 2026 wurden nur die eigenen Buchungen
+// des angemeldeten Nutzers exportiert.)
 export interface BackupData {
   exportedAt: string;
   userId: string;
   collections: {
     bookings: Array<Record<string, unknown>>;
     icalFeeds: Array<Record<string, unknown>>;
+    guests: Array<Record<string, unknown>>;
+    correctionNotes: Array<Record<string, unknown>>;
+    houseSettings: Array<Record<string, unknown>>;
+    priceSettings: Array<Record<string, unknown>>;
   };
+}
+
+async function readFlat(name: string): Promise<Array<Record<string, unknown>>> {
+  try {
+    const snap = await getDocs(collection(db, name));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    throw new Error(`Fehler beim Lesen von "${name}": ${(e as Error).message}`, { cause: e });
+  }
 }
 
 export async function buildBackup(): Promise<BackupData> {
@@ -20,7 +33,7 @@ export async function buildBackup(): Promise<BackupData> {
 
   let bookings: Array<Record<string, unknown>>;
   try {
-    const bookingsSnap = await getDocs(query(collection(db, "bookings"), where("userId", "==", uid)));
+    const bookingsSnap = await getDocs(collection(db, "bookings"));
     bookings = await Promise.all(
       bookingsSnap.docs.map(async (d) => {
         const historySnap = await getDocs(collection(db, "bookings", d.id, "history"));
@@ -46,7 +59,14 @@ export async function buildBackup(): Promise<BackupData> {
   return {
     exportedAt: new Date().toISOString(),
     userId: uid,
-    collections: { bookings, icalFeeds },
+    collections: {
+      bookings,
+      icalFeeds,
+      guests: await readFlat("guests"),
+      correctionNotes: await readFlat("correctionNotes"),
+      houseSettings: await readFlat("houseSettings"),
+      priceSettings: await readFlat("priceSettings"),
+    },
   };
 }
 

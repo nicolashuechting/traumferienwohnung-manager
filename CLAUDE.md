@@ -10,3 +10,4 @@
 - Firestore-Regeln liegen nur in der Firebase Console (nicht im Repo); neue Collections sind dort gesperrt.
 - Das Browser-Fenster in der Claude-App unterdrückt `confirm()`-Dialoge – App-Abläufe mit Rückfragen im normalen Browser testen.
 - Der User ist kein Entwickler: auf Deutsch und in einfacher Sprache erklären.
+- **Korrektur-Notizen** (`correctionNotes`, Seite `/korrekturen`): Pflicht beim Aufheben der Rechnungssperre oder manuell; nicht löschbar (außer `test: true`), nur Admins markieren als erledigt (mit Bearbeitungsnotiz). Code: `src/hooks/useCorrectionNotes.ts`, `src/pages/Corrections.tsx`.

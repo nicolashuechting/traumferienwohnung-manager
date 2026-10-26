@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Calendar, Users, Settings, LogOut, Menu, X, User, BookOpen, Home, TrendingUp, Trash2, Bell } from "lucide-react";
+import { Calendar, Users, Settings, LogOut, Menu, X, User, BookOpen, Home, TrendingUp, Trash2, Bell, ClipboardList } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAutoCompleteBookings } from "@/hooks/useBookings";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useCorrectionNotes } from "@/hooks/useCorrectionNotes";
 
 const NAV = [
   { path: "/",             label: "Home",             Icon: Home },
   { path: "/calendar",     label: "Kalender",         Icon: Calendar },
   { path: "/bookings",     label: "Buchungen",        Icon: BookOpen },
   { path: "/notifications", label: "Benachrichtigungen", Icon: Bell },
+  { path: "/korrekturen",  label: "Korrekturen",      Icon: ClipboardList },
   { path: "/analytics",    label: "Analysen",         Icon: TrendingUp },
   { path: "/guests",       label: "Gäste",            Icon: Users },
   { path: "/trash",        label: "Papierkorb",       Icon: Trash2 },
@@ -25,6 +27,8 @@ export function Layout() {
   useAutoCompleteBookings();
   const { groups } = useNotifications();
   const notificationCount = groups.length;
+  const { data: correctionNotes = [] } = useCorrectionNotes();
+  const openCorrections = correctionNotes.filter((n) => n.status === "offen").length;
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -41,7 +45,7 @@ export function Layout() {
 
         <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
           {NAV.map(({ path, label, Icon }) => {
-            const badge = path === "/notifications" && notificationCount > 0 ? notificationCount : 0;
+            const badge = path === "/notifications" ? notificationCount : path === "/korrekturen" ? openCorrections : 0;
             return (
               <button
                 key={path}

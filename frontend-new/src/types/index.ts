@@ -256,3 +256,27 @@ export interface NotificationSnooze {
   userId: string;       // wer den Snooze gesetzt hat (nur informativ, kein Zugriffsfilter)
   created_at: string;
 }
+
+// ── Korrektur-Notizen ────────────────────────────────────────────────────────
+// Collection "correctionNotes": Pflicht-Notiz beim Aufheben der Rechnungssperre bzw.
+// manuell angelegt, wenn eine Rechnung nachträglich korrigiert werden muss. Nicht
+// löschbar/änderbar (außer Testnotizen) — nur "erledigt" mit Bearbeitungsnotiz.
+export interface CorrectionNote {
+  id: string;
+  booking_id: string;
+  booking_number: string;
+  house_id: HouseId;
+  guest_name: string;
+  text: string;               // was soll geändert werden und warum
+  changes: string[];          // automatisch angehängt: tatsächlich geänderte Felder
+  source: "sperre" | "manuell";
+  status: "offen" | "erledigt";
+  created_at: string;         // ISO
+  created_by: string;         // E-Mail
+  created_by_name: string;
+  resolved_at: string | null;
+  resolved_by: string | null; // Name bzw. E-Mail
+  resolution_note: string;    // Bearbeitungsnotiz, z.B. "Storno UB-2026-0011 + neue Rechnung UB-2026-0012"
+  test: boolean;              // aus dem lokalen Testmodus — darf gelöscht werden
+}
+

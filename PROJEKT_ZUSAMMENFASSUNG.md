@@ -138,7 +138,7 @@ function myRole() {
 }
 function isAdmin() { return isSignedIn() && myRole() != 'viewer' && myRole() != 'none'; }
 ```
-Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if isAdmin();` auf `bookings` (+ `history`), `icalFeeds`, `priceSettings`, `houseSettings`, `guests`. `allowedUsers` bleibt `allow read: if true; allow write: if false;` (öffentlich lesbar für den Pre-Login-Whitelist-Check, nur über die Console änderbar). `mail_anne`/`mail_upstalsboom`: `allow create: if isSignedIn();`, sonst gesperrt.
+Angewendet als `allow read: if isSignedIn(); allow create, update, delete: if isAdmin();` auf `bookings` (+ `history`), `icalFeeds`, `priceSettings`, `houseSettings`, `guests`. `allowedUsers` bleibt `allow read: if true; allow write: if false;` (öffentlich lesbar für den Pre-Login-Whitelist-Check, nur über die Console änderbar). `mail_anne`/`mail_upstalsboom`: `allow create: if isSignedIn();`, sonst gesperrt. `correctionNotes`: lesen alle Angemeldeten, anlegen Admins, ändern nur Admins und nur die Felder `status`, `resolved_at`, `resolved_by`, `resolution_note`, `changes`; löschen nur bei `test == true`.
 
 **Wichtig:** Diese Regeln sind nur in der Firebase Console gepflegt, **nicht** im Repo versioniert (kein `firestore.rules` eingecheckt). Bei Änderungen direkt in der Console anpassen.
 

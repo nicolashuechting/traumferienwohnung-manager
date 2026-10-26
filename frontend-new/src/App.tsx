@@ -15,6 +15,7 @@ import { Settings } from "@/pages/Settings";
 import { PriceSettings } from "@/pages/PriceSettings";
 import { HouseSettingsPage } from "@/pages/HouseSettings";
 import { Trash } from "@/pages/Trash";
+import { Corrections } from "@/pages/Corrections";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,7 @@ function AppRoutes() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/guests" element={<Guests />} />
         <Route path="/trash" element={<Trash />} />
+        <Route path="/korrekturen" element={<Corrections />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/preise" element={<PriceSettings />} />
         <Route path="/settings/haeuser" element={<HouseSettingsPage />} />
