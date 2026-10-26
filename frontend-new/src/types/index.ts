@@ -160,7 +160,12 @@ export type BookingFormData = Omit<Booking, "id" | "userId" | "created_at" | "up
 // Ein Dokument pro Person (Collection "guests", ID = normalisierte E-Mail), damit
 // Adresse/Kontaktdaten einmal erfasst und bei künftigen Buchungen wiedererkannt
 // werden können. Wird bei jedem Speichern einer Buchung mit E-Mail aktualisiert.
+// Pro Haus ein eigenes Profil (Haus Anne und Hus Upstalsboom sind getrennte Betriebe):
+// Dokument-ID "<haus>__<email>", z.B. "upstalsboom__max@web.de". Notizen, Stammgast und
+// Werbemail-Einwilligung gelten damit immer nur für das eine Haus.
 export interface Guest {
+  id: string;         // Firestore-Dokument-ID
+  house: HouseId;
   email: string;
   name: string;       // kombiniert, aus firstName/lastName abgeleitet — für Anzeige
   firstName: string;

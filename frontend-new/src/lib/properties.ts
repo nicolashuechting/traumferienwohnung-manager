@@ -1,4 +1,4 @@
-import type { Property } from "@/types";
+import type { HouseId, Property } from "@/types";
 
 export const properties: Property[] = [
   { id: "ups-2", name: "Upstalsboom 2", house: "Upstalsboom", allowsDogs: true },
@@ -13,3 +13,9 @@ export const properties: Property[] = [
   { id: "anne-4", name: "Anne 4", house: "Haus Anne", allowsDogs: false },
   { id: "anne-5", name: "Anne 5", house: "Haus Anne", allowsDogs: false },
 ];
+
+// Haus-Schlüssel zu einer Wohnung, z.B. "anne-3" → "haus-anne". Wird für Rechnungsnummern,
+// Ablageordner und die nach Haus getrennten Gast-Profile verwendet.
+export function houseIdOf(propertyId: string): HouseId {
+  return properties.find((p) => p.id === propertyId)?.house === "Haus Anne" ? "haus-anne" : "upstalsboom";
+}

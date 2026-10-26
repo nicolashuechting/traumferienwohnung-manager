@@ -7,6 +7,7 @@ import {
 import { useBookings } from "@/hooks/useBookings";
 import { useIcalFeeds, useSyncIcalFeeds } from "@/hooks/useIcalFeeds";
 import { useGuests } from "@/hooks/useGuests";
+import { houseIdOf } from "@/lib/properties";
 import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
@@ -196,7 +197,7 @@ export function Bookings() {
   const { data: bookings = [], isLoading } = useBookings();
   const { data: guests = [] } = useGuests();
   const consentEmails = useMemo(
-    () => new Set(guests.filter((g) => g.marketingConsent).map((g) => g.email.toLowerCase())),
+    () => new Set(guests.filter((g) => g.marketingConsent).map((g) => `${g.house}|${g.email}`)),
     [guests],
   );
   const { isStammgast } = useGuestStats();
@@ -553,7 +554,7 @@ export function Bookings() {
                               <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 flex-shrink-0" />
                             </span>
                           )}
-                          {b.email && consentEmails.has(b.email.toLowerCase()) && (
+                          {b.email && consentEmails.has(`${houseIdOf(b.property_id)}|${b.email.trim().toLowerCase()}`) && (
                             <span title="Hat der Werbemail-Zusendung zugestimmt">
                               <Mail className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
                             </span>

@@ -239,7 +239,9 @@ export function useUpdateBooking() {
         updated_at: serverTimestamp(),
       });
       if (history) await writeHistory(id, history.changes, history.note);
-      await upsertGuestFromBooking(data);
+      // Haus für das Gast-Profil: aus den Änderungen oder aus der bereits geladenen Buchung
+      const knownProperty = qc.getQueryData<Booking[]>(["bookingsAll"])?.find((b) => b.id === id)?.property_id;
+      await upsertGuestFromBooking(data, knownProperty);
     },
     // Optimistic UI: Cache sofort patchen, bei Fehler zurückrollen
     onMutate: async ({ id, data }) => {

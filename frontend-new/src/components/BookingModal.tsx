@@ -6,7 +6,7 @@ import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings }
 import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
-import { useGuests, upsertGuestFields } from "@/hooks/useGuests";
+import { useGuests, upsertGuestFields, findGuest } from "@/hooks/useGuests";
 import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStatus";
@@ -609,8 +609,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   // Teil der Buchung selbst — bei bestehenden Buchungen aus dem passenden Gast-Datensatz laden.
   useEffect(() => {
     if (!open || !booking || !booking.email) return;
-    const email = booking.email.trim().toLowerCase();
-    const match = guests.find((g) => g.email.toLowerCase() === email);
+    const match = findGuest(guests, houseIdOf(booking.property_id), booking.email);
     if (match) {
       setPersonNotes(match.personNotes);
       setMarketingConsent(match.marketingConsent);
@@ -734,7 +733,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     if (current) return;
     const email = form.email.trim().toLowerCase();
     if (!email) { setGuestSuggestion(null); return; }
-    const match = guests.find((g) => g.email.toLowerCase() === email);
+    // Nur Gäste desselben Hauses vorschlagen (Profile sind pro Haus getrennt)
+    const match = findGuest(guests, houseIdOf(form.property_id), email);
     setGuestSuggestion(match ?? null);
   };
 
@@ -1156,7 +1156,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         try {
           await create.mutateAsync(dataToSave);
           if (dataToSave.email) {
-            await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent, isRegularGuest });
+            await upsertGuestFields(houseIdOf(dataToSave.property_id), dataToSave.email, { personNotes, marketingConsent, isRegularGuest });
             qc.invalidateQueries({ queryKey: ["guests"] });
           }
           onClose();
@@ -1171,7 +1171,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       // Personennotizen/Einwilligung können sich geändert haben, auch wenn sich sonst
       // nichts an der Buchung geändert hat — die zählen nicht zum Buchungs-Diff.
       if (dataToSave.email) {
-        await upsertGuestFields(dataToSave.email, { personNotes, marketingConsent, isRegularGuest });
+        await upsertGuestFields(houseIdOf(dataToSave.property_id), dataToSave.email, { personNotes, marketingConsent, isRegularGuest });
         qc.invalidateQueries({ queryKey: ["guests"] });
       }
       setMode("view");
@@ -1230,7 +1230,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
         });
         setUnlockInvoice(false);
         if (data.email) {
-          await upsertGuestFields(data.email, { personNotes, marketingConsent, isRegularGuest });
+          await upsertGuestFields(houseIdOf(data.property_id ?? current.property_id), data.email, { personNotes, marketingConsent, isRegularGuest });
           qc.invalidateQueries({ queryKey: ["guests"] });
         }
         const merged = { ...current, ...data };

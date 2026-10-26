@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { X, Mail, Star } from "lucide-react";
 import { updateGuestAndBookings, type GuestEditFields } from "@/hooks/useGuests";
 import { splitGuestName } from "@/lib/guestName";
+import type { HouseId } from "@/types";
 
 const inputCls = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 
@@ -10,6 +11,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   guest: {
+    house: HouseId; // Profil gilt nur für dieses Haus
     email: string;
     name: string;
     firstName: string;
@@ -71,7 +73,7 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
     setSaving(true);
     setError("");
     try {
-      await updateGuestAndBookings(guest.email, form, bookingIds);
+      await updateGuestAndBookings(guest.house, guest.email, form, bookingIds);
       qc.invalidateQueries({ queryKey: ["guests"] });
       qc.invalidateQueries({ queryKey: ["bookingsAll"] });
       onClose();

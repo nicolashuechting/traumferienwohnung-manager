@@ -1,7 +1,7 @@
 import { doc, runTransaction, serverTimestamp, addDoc, collection } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, listAll, getMetadata } from "firebase/storage";
 import { db, storage, auth } from "@/lib/firebase";
-import { properties } from "@/lib/properties";
+import { houseIdOf } from "@/lib/properties";
 import { computeVat } from "@/lib/pdfConfirmation";
 import type { Booking, BookingInvoice, HouseId } from "@/types";
 
@@ -18,9 +18,7 @@ import type { Booking, BookingInvoice, HouseId } from "@/types";
 export const INVOICE_TEST_MODE = import.meta.env.DEV;
 const TEST_PREFIX = INVOICE_TEST_MODE ? "TEST-" : "";
 
-export function houseIdOf(propertyId: string): HouseId {
-  return properties.find((p) => p.id === propertyId)?.house === "Haus Anne" ? "haus-anne" : "upstalsboom";
-}
+export { houseIdOf };
 
 function seriesOf(propertyId: string, checkIn: string): string {
   const prefix = houseIdOf(propertyId) === "haus-anne" ? "AN" : "UB";

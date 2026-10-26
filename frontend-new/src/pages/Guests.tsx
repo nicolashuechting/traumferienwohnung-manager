@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { Star, Mail, Phone, Search, X, ChevronDown, ChevronUp, Calendar, Moon, Home, Hash, Trash2, Pencil } from "lucide-react";
 import { useBookings, useSoftDeleteBooking } from "@/hooks/useBookings";
-import { useGuests } from "@/hooks/useGuests";
+import { useGuests, findGuest } from "@/hooks/useGuests";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { GuestEditModal } from "@/components/GuestEditModal";
-import { properties } from "@/lib/properties";
+import { properties, houseIdOf } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
 import { splitGuestName, guestKey } from "@/lib/guestName";
-import type { Booking } from "@/types";
+import type { Booking, HouseId } from "@/types";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function fmt(iso: string) {
@@ -27,6 +27,7 @@ function propName(id: string) {
 
 interface GuestRecord {
   key: string;
+  house: HouseId;
   name: string;
   firstName: string;
   lastName: string;
@@ -222,10 +223,30 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "lastStay", label: "Letzter Aufenthalt" },
 ];
 
+// Gäste sind pro Haus getrennt (eigene Profile, Notizen, Einwilligung) — die Seite zeigt
+// immer nur ein Haus. Die Auswahl wird im Browser gemerkt.
+const HOUSES: { id: HouseId; label: string }[] = [
+  { id: "upstalsboom", label: "Upstalsboom" },
+  { id: "haus-anne", label: "Haus Anne" },
+];
+const HOUSE_STORAGE_KEY = "guests.house";
+function initialHouse(): HouseId {
+  try {
+    const v = localStorage.getItem(HOUSE_STORAGE_KEY);
+    if (v === "upstalsboom" || v === "haus-anne") return v;
+  } catch { /* z.B. privater Modus */ }
+  return "upstalsboom";
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function Guests() {
   const { data: bookings = [], isLoading } = useBookings();
   const { data: guestProfiles = [] } = useGuests();
+  const [house, setHouseState] = useState<HouseId>(initialHouse);
+  const setHouse = (h: HouseId) => {
+    setHouseState(h);
+    try { localStorage.setItem(HOUSE_STORAGE_KEY, h); } catch { /* egal */ }
+  };
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("bookings");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -238,16 +259,17 @@ export function Guests() {
   }
 
   const guests: GuestRecord[] = useMemo(() => {
-    const profileByEmail = new Map(guestProfiles.map((p) => [p.email.toLowerCase(), p]));
     const map = new Map<string, GuestRecord>();
     bookings.forEach((b) => {
+      if (houseIdOf(b.property_id) !== house) return;
       const key = guestKey(b.email, b.phone, b.guest_name);
       if (!map.has(key)) {
-        const profile = b.email ? profileByEmail.get(b.email.toLowerCase()) : undefined;
+        const profile = b.email ? findGuest(guestProfiles, house, b.email) : undefined;
         const combinedName = profile?.name || b.guest_name;
         const heuristicSplit = splitGuestName(combinedName);
         map.set(key, {
           key,
+          house,
           name: combinedName,
           firstName: profile?.firstName || b.guest_first_name || heuristicSplit.first,
           lastName:  profile?.lastName  || b.guest_last_name  || heuristicSplit.last,
@@ -274,7 +296,7 @@ export function Guests() {
       g.bookingList.push(b);
     });
     return [...map.values()];
-  }, [bookings, guestProfiles]);
+  }, [bookings, guestProfiles, house]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -319,7 +341,20 @@ export function Guests() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+          {/* Haus-Auswahl */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+            {HOUSES.map((h) => (
+              <button
+                key={h.id}
+                onClick={() => setHouse(h.id)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition whitespace-nowrap
+                  ${house === h.id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                {h.label}
+              </button>
+            ))}
+          </div>
           <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
