@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ChevronUp, ChevronDown, ChevronsUpDown,
   Plus, SlidersHorizontal, X, Home, CalendarRange, ChevronDown as ChevDown,
-  RefreshCw, Mail, Star,
+  RefreshCw, Mail, Star, Lock,
 } from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
 import { useIcalFeeds, useSyncIcalFeeds } from "@/hooks/useIcalFeeds";
@@ -13,6 +13,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
 import { statusConfig, isPaid } from "@/lib/bookingStatus";
+import { isBlocked, blockLabel } from "@/lib/blocks";
 import type { Booking } from "@/types";
 import { ICAL_IMPORT_ENABLED } from "@/lib/features";
 
@@ -187,6 +188,7 @@ const CHANNEL_COLORS: Record<string, string> = {
   "BaltrumDirekt":         "bg-teal-100 text-teal-700",
   "Traumferienwohnungen":  "bg-amber-100 text-amber-700",
   "Webseite":              "bg-blue-100 text-blue-700",
+  "Sperre":                "bg-slate-200 text-slate-700",
 };
 function channelColor(ch: string) {
   return CHANNEL_COLORS[ch] ?? "bg-purple-100 text-purple-700";
@@ -251,8 +253,9 @@ export function Bookings() {
     if (dateTo)   list = list.filter((b) => b.check_in  <= dateTo);
 
     // Paid filter
-    if (filters.paid === "paid")   list = list.filter((b) => isPaid(b));
-    if (filters.paid === "unpaid") list = list.filter((b) => !isPaid(b));
+    // Sperren haben nichts zu bezahlen → tauchen in beiden Bezahlt-Filtern nicht auf
+    if (filters.paid === "paid")   list = list.filter((b) => !isBlocked(b) && isPaid(b));
+    if (filters.paid === "unpaid") list = list.filter((b) => !isBlocked(b) && !isPaid(b));
 
     // Search
     if (filters.search.trim()) {
@@ -548,7 +551,11 @@ export function Bookings() {
                       </td>
                       <td className="px-3 py-3 text-gray-900 font-medium min-w-[140px]">
                         <span className="inline-flex items-center gap-1.5">
-                          {b.guest_name}
+                          {isBlocked(b) ? (
+                            <span className="inline-flex items-center gap-1 text-slate-600">
+                              <Lock className="w-3.5 h-3.5 flex-shrink-0" />{blockLabel(b)}
+                            </span>
+                          ) : b.guest_name}
                           {isStammgast(b) && (
                             <span title="Stammgast">
                               <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 flex-shrink-0" />
@@ -573,8 +580,12 @@ export function Bookings() {
                           ? `${b.cancellationFee.toLocaleString("de-DE")} € (Stornogebühren)`
                           : b.price > 0 ? `${b.price.toLocaleString("de-DE")} €` : "–"}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap"><StatusBadge status={b.status} /></td>
-                      <td className="px-3 py-3 text-center"><Checkbox checked={isPaid(b)} /></td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        {isBlocked(b)
+                          ? <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">Gesperrt</span>
+                          : <StatusBadge status={b.status} />}
+                      </td>
+                      <td className="px-3 py-3 text-center">{isBlocked(b) ? <span className="text-gray-300">–</span> : <Checkbox checked={isPaid(b)} />}</td>
                       <td className="px-3 py-3 text-gray-400">
                         {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </td>

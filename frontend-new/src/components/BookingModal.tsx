@@ -7,6 +7,8 @@ import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { useGuests, upsertGuestFields, findGuest } from "@/hooks/useGuests";
+import { BlockModal } from "@/components/BlockModal";
+import { isBlocked } from "@/lib/blocks";
 import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
 import { STATUS_ORDER, NUMBERED_STATUSES, statusConfig } from "@/lib/bookingStatus";
@@ -488,6 +490,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const [unlockInvoice, setUnlockInvoice] = useState(false);
   const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
   const [guestSuggestion, setGuestSuggestion] = useState<Guest | null>(null);
+  // Sperre (z.B. Familie) statt Buchung — eigenes, schlankes Formular (BlockModal)
+  const [blockMode, setBlockMode] = useState(false);
   const [nameCollisionHint, setNameCollisionHint] = useState<string | null>(null);
   const [personNotes, setPersonNotes] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
@@ -556,6 +560,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
 
   useEffect(() => {
     if (!open) return;
+    setBlockMode(!!booking && isBlocked(booking));
     setCurrent(booking ?? null);
     let loadedForm: BookingFormData;
     if (booking) {
@@ -830,6 +835,18 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   }, [open, mode, showSaveDiff, showHistory, restoreEntry, pendingCollision, attemptCancel, onClose, variant]);
 
   if (!open) return null;
+  if (blockMode) {
+    return (
+      <BlockModal
+        open
+        booking={booking && isBlocked(booking) ? booking : null}
+        prefill={!booking ? { propertyId: form.property_id || prefill?.propertyId || "", checkIn: form.check_in || prefill?.checkIn || "", checkOut: form.check_out || prefill?.checkOut || "" } : undefined}
+        onClose={onClose}
+        onSwitchToBooking={!booking ? () => setBlockMode(false) : undefined}
+        variant={variant}
+      />
+    );
+  }
 
   const handleConfirm = () => {
     if (!confirmStatusTransition(form.status, "bestaetigt")) return;
@@ -1304,7 +1321,19 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-1.5 min-w-0">
               {!current ? (
-                "Neue Buchung"
+                <span className="flex items-center gap-2 flex-wrap">
+                  Neue Buchung
+                  {!isViewer && (
+                    <button
+                      type="button"
+                      onClick={() => setBlockMode(true)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+                      title="Nur blockieren, z. B. für Familie – ohne Kosten und Bestätigung"
+                    >
+                      <Lock className="w-3 h-3" /> Stattdessen Zeitraum sperren
+                    </button>
+                  )}
+                </span>
               ) : mode === "edit" ? (
                 "Buchung bearbeiten"
               ) : (

@@ -9,6 +9,7 @@ import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
 import type { Booking } from "@/types";
+import { isBlocked, blockLabel } from "@/lib/blocks";
 
 function StatusChip({ status }: { status: Booking["status"] }) {
   const cfg = statusConfig(status);
@@ -107,7 +108,7 @@ function EventCard({ ev, onClick, isStammgast }: { ev: CalEvent; onClick: () => 
       </div>
       <div className="mt-2 flex items-center gap-4 text-sm flex-wrap">
         <span className="flex items-center gap-1.5 text-gray-700 font-medium">
-          <span className="text-gray-400">👤</span> {ev.booking.guest_name}
+          <span className="text-gray-400">👤</span> {isBlocked(ev.booking) ? blockLabel(ev.booking) : ev.booking.guest_name}
           {isStammgast && (
             <span title="Stammgast">
               <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
@@ -157,7 +158,7 @@ function ActivityItem({ booking, onClick, isStammgast }: { booking: Booking; onC
             <span className="text-xs text-gray-400">{ago}</span>
           </div>
           <p className="text-sm font-medium text-gray-900 mt-1 truncate flex items-center gap-1.5">
-            <span className="truncate">{booking.guest_name}</span>
+            <span className="truncate">{isBlocked(booking) ? blockLabel(booking) : booking.guest_name}</span>
             {isStammgast && (
               <span title="Stammgast" className="flex-shrink-0">
                 <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />

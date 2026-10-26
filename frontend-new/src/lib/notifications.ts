@@ -1,5 +1,6 @@
 import type { Booking, BookingStatus, NotificationRuleKey, NotificationSettings, NotificationSnooze, NotificationUrgency } from "@/types";
 import { isPaid } from "@/lib/bookingStatus";
+import { isBlocked } from "@/lib/blocks";
 
 // Keine dauerhaft gespeicherten Benachrichtigungs-Objekte — computeNotifications()
 // leitet den kompletten Zustand bei jedem Aufruf live aus den Buchungen ab. Eine
@@ -144,6 +145,7 @@ export function computeNotifications(
   const result: AppNotification[] = [];
   for (const b of bookings) {
     if (b.status === "storniert") continue;
+    if (isBlocked(b)) continue; // Sperren: keine Erinnerungen (kein Preis, keine Bestätigung)
     for (const rule of RULES) {
       const n = rule(b, settings);
       if (!n) continue;

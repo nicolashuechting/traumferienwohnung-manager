@@ -55,6 +55,12 @@ export function buildEmailContent(
   lines.push(`Anreise: ${fmtDate(booking.check_in)}`);
   lines.push(`Abreise: ${fmtDate(booking.check_out)}`);
   lines.push("");
+  if (booking.source === "blocked") {
+    // Sperre (z.B. Familie): keine Gastdaten, Reinigung trotzdem relevant
+    lines.push(`Sperre: ${booking.guest_name || "ohne Namen"} (kein Gast, keine Kosten)`);
+    if (booking.notes) lines.push(`Notiz: ${booking.notes}`);
+    return { subject: `${subject} (Sperre)`, text: lines.join("\n") };
+  }
   lines.push(`Gast: ${booking.guest_name || "–"}`);
   lines.push(`Telefon: ${booking.phone || "–"}`);
   lines.push(`E-Mail: ${booking.email || "–"}`);

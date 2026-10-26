@@ -4,7 +4,8 @@ import {
   type DragStartEvent, type DragMoveEvent, type DragEndEvent,
 } from "@dnd-kit/core";
 // DragOverlay entfernt — Live-Vorschau erfolgt direkt im Raster über previewDates-State
-import { Star } from "lucide-react";
+import { Star, Lock } from "lucide-react";
+import { isBlocked, BLOCK_COLOR, BLOCK_STRIPES, blockLabel } from "@/lib/blocks";
 import { statusConfig, CONFIRMED_STATUSES, isPaid } from "@/lib/bookingStatus";
 import { useUpdateBooking } from "@/hooks/useBookings";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -223,6 +224,7 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
     data: { booking: bar.booking, mode: "move" as MonthDragMode },
   });
   const isCancelled = bar.booking.status === "storniert";
+  const blocked = isBlocked(bar.booking);
   // Der Streifen ist zu dünn für ein Icon — bezahlt/offen wird hier stattdessen über
   // die Grundfarbe signalisiert (Grün = Stornogebühren bezahlt, Grau = noch offen),
   // das diagonale Streifenmuster bleibt in beiden Fällen als "storniert"-Signal.
@@ -230,12 +232,13 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
   const style: React.CSSProperties = {
     position: "absolute",
     left, width: Math.max(4, width), top, height,
-    backgroundColor: isCancelled ? cancelledColor : statusConfig(bar.booking.status).barColor,
+    backgroundColor: isCancelled ? cancelledColor : blocked ? BLOCK_COLOR : statusConfig(bar.booking.status).barColor,
     // Diagonales Streifenmuster statt Grundfarbe/Deckkraft — bleibt auch bei
     // ähnlicher Grundfarbe (z.B. neben "Anfrage") klar als "storniert" erkennbar.
+    // Sperren: eigenes graues Schraffur-Muster.
     backgroundImage: isCancelled
       ? "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0px, rgba(255,255,255,0.55) 2px, transparent 2px, transparent 4px)"
-      : undefined,
+      : blocked ? BLOCK_STRIPES : undefined,
     borderRadius: radius,
     boxShadow: isConflict ? `0 0 0 2px ${BOOKING_OVERLAP_COLOR}` : undefined,
     // Aktivierte Buchung wird auf 30% Opacity gedimmt (wie CalendarGrid 0.4),
@@ -274,20 +277,23 @@ function MonthBar({ dragId, bar, left, width, top, height, radius, isConflict, n
       onClick={(e) => { e.stopPropagation(); onClickBar(bar.booking); }}
       className="flex items-center gap-0.5 px-1.5 text-white text-[11px] font-semibold overflow-hidden"
       style={style}
-      title={`${bar.booking.guest_name}${bar.booking.booking_number ? ` | ${bar.booking.booking_number}` : ""} | ${bar.booking.check_in} – ${bar.booking.check_out}`
+      title={`${blocked ? blockLabel(bar.booking) : bar.booking.guest_name}${bar.booking.booking_number ? ` | ${bar.booking.booking_number}` : ""} | ${bar.booking.check_in} – ${bar.booking.check_out}`
+        + (blocked && bar.booking.notes ? `\n${bar.booking.notes}` : "")
         + (bar.booking.ferry_time ? `\nAnreise mit Fähre ${bar.booking.ferry_time} Uhr` : "")
         + (bar.booking.ferry_time_departure ? `\nAbreise mit Fähre ${bar.booking.ferry_time_departure} Uhr` : "")
         + (isConflict ? "\n⚠ Überschneidung" : "")}
     >
       {bar.showName && isConflict && <span className="flex-shrink-0 text-[10px]">⚠</span>}
-      {bar.showName && nameW >= MIN_NAME_W && isStammgast && <Star className="w-2.5 h-2.5 flex-shrink-0 fill-white" />}
-      {bar.showName && nameW >= MIN_NAME_W && (
+      {bar.showName && blocked && <Lock className="w-2.5 h-2.5 flex-shrink-0" />}
+      {bar.showName && blocked && nameW >= MIN_NAME_W && <span className="truncate min-w-0">{blockLabel(bar.booking)}</span>}
+      {bar.showName && !blocked && nameW >= MIN_NAME_W && isStammgast && <Star className="w-2.5 h-2.5 flex-shrink-0 fill-white" />}
+      {bar.showName && !blocked && nameW >= MIN_NAME_W && (
         <span className="truncate min-w-0">{bar.booking.guest_name}</span>
       )}
-      {bar.showName && nameW < MIN_NAME_W && (
+      {bar.showName && !blocked && nameW < MIN_NAME_W && (
         <span className="truncate min-w-0 text-[10px]">{bar.booking.guest_name.split(" ").pop()}</span>
       )}
-      {bar.showName && !isPaid(bar.booking) && (
+      {bar.showName && !blocked && !isPaid(bar.booking) && (
         <span className="flex-shrink-0 bg-black/20 rounded px-0.5 text-[9px] font-normal ml-auto">€?</span>
       )}
     </button>

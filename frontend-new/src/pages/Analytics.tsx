@@ -4,6 +4,7 @@ import {
   Dog, Baby, ShieldCheck, Armchair,
 } from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
+import { isBlocked } from "@/lib/blocks";
 import { properties } from "@/lib/properties";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -371,11 +372,12 @@ export function Analytics() {
   const [propFilter, setPropFilter] = useState<PropFilter>("all");
   const [visibleCategories, setVisibleCategories] = useState<Set<RevenueCategory>>(new Set(ALL_CATEGORIES));
 
-  const bookings = useMemo(() =>
-    propFilter === "all" ? allBookings
-      : allBookings.filter((b) => properties.find((p) => p.id === b.property_id)?.house === propFilter),
-    [allBookings, propFilter]
-  );
+  // Sperren (z.B. Familie) sind keine Vermietung → weder Umsatz noch Auslastung/Statistik.
+  const bookings = useMemo(() => {
+    const rented = allBookings.filter((b) => !isBlocked(b));
+    return propFilter === "all" ? rented
+      : rented.filter((b) => properties.find((p) => p.id === b.property_id)?.house === propFilter);
+  }, [allBookings, propFilter]);
   const filteredProps = useMemo(() =>
     propFilter === "all" ? properties : properties.filter((p) => p.house === propFilter),
     [propFilter]

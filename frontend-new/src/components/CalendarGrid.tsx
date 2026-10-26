@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from "react";
-import { Dog, Ban, CheckCircle2, Star } from "lucide-react";
+import { Dog, Ban, CheckCircle2, Star, Lock } from "lucide-react";
 import {
   DndContext, PointerSensor, useSensor, useSensors, useDraggable,
   type DragStartEvent, type DragMoveEvent, type DragEndEvent, type Modifier,
 } from "@dnd-kit/core";
 import { properties } from "@/lib/properties";
+import { isBlocked, BLOCK_COLOR, BLOCK_STRIPES, blockLabel } from "@/lib/blocks";
 import { statusConfig, CONFIRMED_STATUSES, isPaid } from "@/lib/bookingStatus";
 import { useUpdateBooking } from "@/hooks/useBookings";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -66,16 +67,18 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
     data: { booking, mode: "move" as DragMode },
   });
   const isCancelled = booking.status === "storniert";
+  const blocked = isBlocked(booking);
 
   const style: React.CSSProperties = {
     position: "absolute",
     left, width: Math.max(4, width), top, height,
-    backgroundColor: statusConfig(booking.status).barColor,
+    backgroundColor: blocked ? BLOCK_COLOR : statusConfig(booking.status).barColor,
     // Diagonales Streifenmuster statt Grundfarbe/Deckkraft — bleibt auch bei
     // ähnlicher Grundfarbe (z.B. neben "Anfrage") klar als "storniert" erkennbar.
+    // Sperren: eigenes graues Schraffur-Muster.
     backgroundImage: isCancelled
       ? "repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0px, rgba(255,255,255,0.55) 3px, transparent 3px, transparent 6px)"
-      : undefined,
+      : blocked ? BLOCK_STRIPES : undefined,
     // Beim Verschieben (Mitte) folgt der Balken dem dnd-Transform (X = Datum, Y = Wohnung).
     // Beim Resize bewegt sich der Griff – der Balken wird über left/width neu gesetzt.
     transform: transform ? `translate3d(${transform.x}px,${transform.y}px,0)` : undefined,
@@ -103,7 +106,8 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
         ? "flex items-center justify-center gap-1 text-white rounded-sm overflow-hidden"
         : "flex items-center gap-1 px-1.5 text-white text-[11px] font-semibold rounded overflow-hidden"}
       style={style}
-      title={`${booking.guest_name}${booking.booking_number ? ` | ${booking.booking_number}` : ""} | ${booking.check_in} – ${booking.check_out}`
+      title={`${blocked ? blockLabel(booking) : booking.guest_name}${booking.booking_number ? ` | ${booking.booking_number}` : ""} | ${booking.check_in} – ${booking.check_out}`
+        + (blocked && booking.notes ? `\n${booking.notes}` : "")
         + (booking.ferry_time ? `\nAnreise mit Fähre ${booking.ferry_time} Uhr` : "")
         + (booking.ferry_time_departure ? `\nAbreise mit Fähre ${booking.ferry_time_departure} Uhr` : "")
         + (isConflict ? "\n⚠ Überschneidung" : "")
@@ -113,6 +117,12 @@ function DraggableBar({ booking, left, width, top, height, isConflict, isActiveD
         <>
           <Ban className="w-3 h-3 flex-shrink-0" />
           {booking.is_paid && <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />}
+        </>
+      ) : blocked ? (
+        <>
+          {isConflict && <span className="flex-shrink-0 text-[10px]">⚠</span>}
+          <Lock className="w-3 h-3 flex-shrink-0" />
+          <span className="truncate min-w-0">{blockLabel(booking)}</span>
         </>
       ) : (
         <>

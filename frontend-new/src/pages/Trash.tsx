@@ -4,6 +4,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
 import type { Booking } from "@/types";
+import { isBlocked, blockLabel } from "@/lib/blocks";
 
 function fmt(iso: string) {
   if (!iso) return "–";
@@ -31,7 +32,7 @@ function TrashRow({
     <div className="flex items-center gap-4 p-4 border-b border-gray-100 last:border-0 flex-wrap">
       <div className="flex-1 min-w-[200px]">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold text-gray-900">{b.guest_name || "Unbekannter Gast"}</p>
+          <p className="text-sm font-semibold text-gray-900">{isBlocked(b) ? blockLabel(b) : b.guest_name || "Unbekannter Gast"}</p>
           {b.booking_number && (
             <span className="text-xs font-mono text-gray-400">{b.booking_number}</span>
           )}

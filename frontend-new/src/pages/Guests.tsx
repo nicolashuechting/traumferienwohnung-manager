@@ -6,6 +6,7 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { GuestEditModal } from "@/components/GuestEditModal";
 import { properties, houseIdOf } from "@/lib/properties";
+import { isBlocked } from "@/lib/blocks";
 import { statusConfig } from "@/lib/bookingStatus";
 import { splitGuestName, guestKey } from "@/lib/guestName";
 import type { Booking, HouseId } from "@/types";
@@ -262,6 +263,7 @@ export function Guests() {
     const map = new Map<string, GuestRecord>();
     bookings.forEach((b) => {
       if (houseIdOf(b.property_id) !== house) return;
+      if (isBlocked(b)) return; // Sperren (z.B. Familie) sind keine Gäste
       const key = guestKey(b.email, b.phone, b.guest_name);
       if (!map.has(key)) {
         const profile = b.email ? findGuest(guestProfiles, house, b.email) : undefined;
