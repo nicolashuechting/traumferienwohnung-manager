@@ -9,6 +9,7 @@ import { useIcalFeeds, useSyncIcalFeeds } from "@/hooks/useIcalFeeds";
 import { useGuests } from "@/hooks/useGuests";
 import { houseIdOf } from "@/lib/properties";
 import { useGuestStats } from "@/hooks/useGuestStats";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { properties } from "@/lib/properties";
@@ -203,6 +204,7 @@ export function Bookings() {
     [guests],
   );
   const { isStammgast } = useGuestStats();
+  const { houseLabels } = useHouseAccess();
   const { data: feeds = [] } = useIcalFeeds();
   const syncFeeds = useSyncIcalFeeds();
   const [syncMsg, setSyncMsg] = useState("");
@@ -367,7 +369,7 @@ export function Bookings() {
                   Alle Wohnungen
                 </button>
                 <div className="my-1 border-t border-gray-100" />
-                {["Upstalsboom", "Haus Anne"].map((house) => (
+                {houseLabels.map((house) => (
                   <div key={house}>
                     <p className="px-4 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">{house}</p>
                     {properties.filter((p) => p.house === house).map((p) => (

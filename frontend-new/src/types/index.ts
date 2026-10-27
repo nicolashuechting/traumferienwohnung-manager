@@ -209,6 +209,7 @@ export interface AllowedUser {
   email: string;
   displayName: string;
   role: UserRole; // fehlt in Firestore bei Altbestand → wird als "admin" behandelt (siehe useAllowedUsers)
+  houses: HouseId[]; // Firestore-Feld "houses" — leer/fehlend = alle Häuser sichtbar
 }
 
 // iCal feed stored in Firestore

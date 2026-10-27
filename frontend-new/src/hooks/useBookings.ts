@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   collection, getDocs, getDoc,
@@ -9,6 +9,7 @@ import { properties } from "@/lib/properties";
 import { CHANNEL_OPTIONS } from "@/lib/channels";
 import { diffBooking } from "@/lib/bookingHistory";
 import { upsertGuestFromBooking } from "@/hooks/useGuests";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { INVOICE_LOCKED_FIELDS } from "@/types";
 import type { Booking, BookingFormData, BookingStatus, FieldChange } from "@/types";
 
@@ -153,22 +154,35 @@ async function fetchBookings(): Promise<Booking[]> {
     .filter((b) => b.check_in && b.check_out);
 }
 
+// Beide Hooks liefern nur Buchungen der Häuser, die das Konto sehen darf (useHouseAccess) —
+// so zeigen Kalender, Listen, Gäste, Analysen usw. automatisch nur das eigene Haus.
 export function useBookings() {
+  const { canSeeProperty, houses } = useHouseAccess();
+  const key = houses.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const select = useCallback((data: Booking[]) => data.filter((b) => !b.deletedAt && canSeeProperty(b.property_id)), [key]);
   return useQuery({
     queryKey: ["bookingsAll"],
     queryFn: fetchBookings,
-    select: (data) => data.filter((b) => !b.deletedAt),
+    select,
   });
 }
 
 export function useTrashedBookings() {
+  const { canSeeProperty, houses } = useHouseAccess();
+  const key = houses.join(",");
+  const select = useCallback(
+    (data: Booking[]) =>
+      data
+        .filter((b) => !!b.deletedAt && canSeeProperty(b.property_id))
+        .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key],
+  );
   return useQuery({
     queryKey: ["bookingsAll"],
     queryFn: fetchBookings,
-    select: (data) =>
-      data
-        .filter((b) => !!b.deletedAt)
-        .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")),
+    select,
   });
 }
 

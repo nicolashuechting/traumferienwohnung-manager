@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Trash2, Save, Download } from "lucide-react";
 import { usePriceSettings, useUpdatePriceGroup, useSeedPriceSettings } from "@/hooks/usePriceSettings";
 import { useUserRole } from "@/hooks/useUserRole";
 import { PRICE_GROUP_LABELS, PRICE_GROUP_ORDER } from "@/lib/priceGroups";
 import { PRICE_SEED_DATA } from "@/lib/priceSeedData";
 import type { PriceGroupSettings, PriceGroupId, PriceSeason, PriceYear } from "@/types";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 
 const inputCls = "w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 
@@ -18,12 +19,16 @@ export function PriceSettings() {
   const update = useUpdatePriceGroup();
   const seed = useSeedPriceSettings();
 
-  const [selectedId, setSelectedId] = useState<PriceGroupId>("kamin");
+  const [chosenId, setSelectedId] = useState<PriceGroupId>("kamin");
+  // Preisgruppen nur der Häuser, die das Konto sehen darf (kamin/terrasse = Upstalsboom, anne-* = Haus Anne)
+  const { houses: allowedHouses } = useHouseAccess();
+  const visibleGroups = PRICE_GROUP_ORDER.filter((id) => allowedHouses.includes(id.startsWith("anne") ? "haus-anne" : "upstalsboom"));
+  const selectedId: PriceGroupId = visibleGroups.includes(chosenId) ? chosenId : visibleGroups[0] ?? chosenId;
   const [draft, setDraft] = useState<PriceGroupSettings | null>(null);
   const [yearIdx, setYearIdx] = useState(0);
   const [saved, setSaved] = useState(false);
 
-  const current = useMemo(() => groups.find((g) => g.id === selectedId), [groups, selectedId]);
+  const current = groups.find((g) => g.id === selectedId);
 
   useEffect(() => {
     setDraft(current ? structuredClone(current) : emptyGroup(selectedId));
@@ -107,7 +112,7 @@ export function PriceSettings() {
       )}
 
       <div className="flex flex-wrap gap-1.5">
-        {PRICE_GROUP_ORDER.map((id) => (
+        {visibleGroups.map((id) => (
           <button
             key={id}
             onClick={() => setSelectedId(id)}

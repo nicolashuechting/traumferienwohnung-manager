@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Star, Mail, Phone, Search, X, ChevronDown, ChevronUp, Calendar, Moon, Home, Hash, Trash2, Pencil } from "lucide-react";
 import { useBookings, useSoftDeleteBooking } from "@/hooks/useBookings";
 import { useGuests, findGuest } from "@/hooks/useGuests";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { useUserRole } from "@/hooks/useUserRole";
 import { BookingModal } from "@/components/BookingModal";
 import { GuestEditModal } from "@/components/GuestEditModal";
@@ -243,7 +244,10 @@ function initialHouse(): HouseId {
 export function Guests() {
   const { data: bookings = [], isLoading } = useBookings();
   const { data: guestProfiles = [] } = useGuests();
-  const [house, setHouseState] = useState<HouseId>(initialHouse);
+  const [chosenHouse, setHouseState] = useState<HouseId>(initialHouse);
+  // Konten mit nur einem Haus sehen nur dieses (kein Umschalter)
+  const { houses: allowedHouses, allHouses } = useHouseAccess();
+  const house: HouseId = allowedHouses.includes(chosenHouse) ? chosenHouse : allowedHouses[0] ?? chosenHouse;
   const setHouse = (h: HouseId) => {
     setHouseState(h);
     try { localStorage.setItem(HOUSE_STORAGE_KEY, h); } catch { /* egal */ }
@@ -345,7 +349,7 @@ export function Guests() {
 
           <div className="flex items-center gap-2 flex-wrap">
           {/* Haus-Auswahl */}
-          <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+          {allHouses && <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
             {HOUSES.map((h) => (
               <button
                 key={h.id}
@@ -356,7 +360,7 @@ export function Guests() {
                 {h.label}
               </button>
             ))}
-          </div>
+          </div>}
           <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}

@@ -8,6 +8,7 @@ import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { useGuests, upsertGuestFields, findGuest } from "@/hooks/useGuests";
 import { BlockModal } from "@/components/BlockModal";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { isBlocked } from "@/lib/blocks";
 import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -552,6 +553,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const { data: houseSettings = [] } = useHouseSettings();
   const { isViewer } = useUserRole();
   const { isStammgast } = useGuestStats();
+  const { houseLabels } = useHouseAccess(); // Wohnungsauswahl nur für sichtbare Häuser
   const { data: guests = [] } = useGuests();
   const qc = useQueryClient();
   const create = useCreateBooking();
@@ -1677,7 +1679,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                   <label className="block text-sm font-medium text-gray-700 mb-1">Wohnung *</label>
                   <select value={form.property_id} onChange={(e) => set("property_id", e.target.value)} className={inputCls}>
                     <option value="" disabled>Wohnung wählen…</option>
-                    {["Upstalsboom", "Haus Anne"].map((house) => (
+                    {houseLabels.map((house) => (
                       <optgroup key={house} label={house}>
                         {properties.filter((p) => p.house === house).map((p) => (
                           <option key={p.id} value={p.id}>{p.name}</option>

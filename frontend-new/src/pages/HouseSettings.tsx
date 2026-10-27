@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
 import { useHouseSettings, useUpdateHouseSettings } from "@/hooks/useHouseSettings";
 import { useUserRole } from "@/hooks/useUserRole";
 import type { HouseId, HouseSettings } from "@/types";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 
 const inputCls = "w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none";
 
@@ -40,11 +41,15 @@ export function HouseSettingsPage() {
   const { data: houses = [], isLoading } = useHouseSettings();
   const update = useUpdateHouseSettings();
 
-  const [selectedId, setSelectedId] = useState<HouseId>("haus-anne");
+  const [chosenId, setSelectedId] = useState<HouseId>("haus-anne");
+  // Nur Häuser, die das Konto sehen darf
+  const { houses: allowedHouses } = useHouseAccess();
+  const visibleHouses = HOUSE_ORDER.filter((id) => allowedHouses.includes(id));
+  const selectedId: HouseId = visibleHouses.includes(chosenId) ? chosenId : visibleHouses[0] ?? chosenId;
   const [draft, setDraft] = useState<HouseSettings | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const current = useMemo(() => houses.find((h) => h.id === selectedId), [houses, selectedId]);
+  const current = houses.find((h) => h.id === selectedId);
 
   useEffect(() => {
     setDraft(current ? structuredClone(current) : emptyHouse(selectedId));
@@ -74,7 +79,7 @@ export function HouseSettingsPage() {
 
       <div className="flex-1 overflow-y-auto p-6 max-w-2xl space-y-5">
         <div className="flex gap-1.5">
-          {HOUSE_ORDER.map((id) => (
+          {visibleHouses.length > 1 && visibleHouses.map((id) => (
             <button
               key={id}
               onClick={() => setSelectedId(id)}

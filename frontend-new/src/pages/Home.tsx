@@ -10,6 +10,7 @@ import { properties } from "@/lib/properties";
 import { statusConfig } from "@/lib/bookingStatus";
 import type { Booking } from "@/types";
 import { isBlocked, blockLabel } from "@/lib/blocks";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 
 function StatusChip({ status }: { status: Booking["status"] }) {
   const cfg = statusConfig(status);
@@ -193,6 +194,7 @@ export function Home() {
   const { data: bookings = [], isLoading } = useBookings();
   const { isStammgast } = useGuestStats();
   const [houseFilter, setHouseFilter] = useState<HouseFilter>("all");
+  const { allHouses } = useHouseAccess(); // nur ein Haus → Buchungen sind schon gefiltert, kein Umschalter
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
 
@@ -264,7 +266,7 @@ export function Home() {
           <p className="text-xs text-gray-500 mt-0.5">Übersicht der nächsten 30 Tage</p>
         </div>
         {/* House filter */}
-        <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+        {allHouses && <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
           {(["all", "Upstalsboom", "Haus Anne"] as HouseFilter[]).map((h) => (
             <button
               key={h}
@@ -275,7 +277,7 @@ export function Home() {
               {h === "all" ? "Alle Häuser" : h}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Two-column layout */}

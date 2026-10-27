@@ -7,6 +7,7 @@ import { properties } from "@/lib/properties";
 import { NotificationDetailPanel } from "@/components/NotificationDetailPanel";
 import { RULE_LABELS, type BookingNotificationGroup } from "@/lib/notifications";
 import type { Booking } from "@/types";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 
 // Bewusst andere Reihenfolge/Vorauswahl als bei Kalender/Analysen (dort "Alle"
 // zuerst) — hier ist "Haus Anne" Standard, explizit so gewünscht.
@@ -64,17 +65,19 @@ export function Notifications() {
   const { isViewer } = useUserRole();
   const { isStammgast } = useGuestStats();
   const [houseFilter, setHouseFilter] = useState<HouseFilter>("Haus Anne");
+  // Konten mit nur einem Haus: Buchungen sind schon gefiltert → immer "alle" zeigen, kein Umschalter
+  const { allHouses } = useHouseAccess();
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
   const filtered = useMemo(() => {
-    if (houseFilter === "all") return groups;
+    if (houseFilter === "all" || !allHouses) return groups;
     return groups.filter((g) => {
       const b = bookingsById.get(g.bookingId);
       const house = properties.find((p) => p.id === b?.property_id)?.house;
       return house === houseFilter;
     });
-  }, [groups, bookingsById, houseFilter]);
+  }, [groups, bookingsById, houseFilter, allHouses]);
 
   const overdue = filtered.filter((g) => g.urgency === "overdue");
   const soon = filtered.filter((g) => g.urgency === "soon");
@@ -104,7 +107,7 @@ export function Notifications() {
             {filtered.length} Buchung{filtered.length !== 1 ? "en" : ""} mit offenen Punkten
           </p>
         </div>
-        <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+        {allHouses && <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
           {HOUSE_OPTIONS.map((f) => (
             <button
               key={f}
@@ -115,7 +118,7 @@ export function Notifications() {
               {f === "all" ? "Alle" : f}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       {isLoading ? (

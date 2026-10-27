@@ -6,6 +6,7 @@ import { BookingModal } from "@/components/BookingModal";
 import { useBookings } from "@/hooks/useBookings";
 import { useGuestStats } from "@/hooks/useGuestStats";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { properties } from "@/lib/properties";
 import type { Booking } from "@/types";
 
@@ -23,6 +24,7 @@ export function Calendar() {
   const { data: bookings = [], isLoading, error } = useBookings();
   const { isStammgast } = useGuestStats();
   const { isViewer } = useUserRole();
+  const { visibleProperties, allHouses } = useHouseAccess();
   const [viewMode, setViewMode] = useState<ViewMode>("multi");
   const [houseFilter, setHouseFilter] = useState<HouseFilter>("all");
   const [selectedPropertyId, setSelectedPropertyId] = useState(properties[0].id);
@@ -58,11 +60,15 @@ export function Calendar() {
     setModalOpen(true);
   };
 
-  const selectedProp = properties.find((p) => p.id === selectedPropertyId)!;
+  // Konten mit nur einem Haus sehen nur dessen Wohnungen (useHouseAccess)
+  const effectivePropertyId = visibleProperties.some((p) => p.id === selectedPropertyId)
+    ? selectedPropertyId
+    : visibleProperties[0]?.id ?? properties[0].id;
+  const selectedProp = properties.find((p) => p.id === effectivePropertyId)!;
 
   const filteredProperties = useMemo(
-    () => houseFilter === "all" ? properties : properties.filter((p) => p.house === houseFilter),
-    [houseFilter]
+    () => houseFilter === "all" || !allHouses ? visibleProperties : visibleProperties.filter((p) => p.house === houseFilter),
+    [houseFilter, visibleProperties, allHouses]
   );
   const visibleBookingsCount = houseFilter === "all"
     ? bookings.length
@@ -117,7 +123,7 @@ export function Calendar() {
           </div>
 
           {/* Haus-Filter (nur in der Übersicht) */}
-          {viewMode === "multi" && (
+          {viewMode === "multi" && allHouses && (
             <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
               {(["all", "Upstalsboom", "Haus Anne"] as HouseFilter[]).map((f) => (
                 <button
@@ -138,11 +144,11 @@ export function Calendar() {
           {/* Property selector (only in single view) */}
           {viewMode === "single" && (
             <select
-              value={selectedPropertyId}
+              value={effectivePropertyId}
               onChange={(e) => setSelectedPropertyId(e.target.value)}
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
             >
-              {properties.map((p) => (
+              {visibleProperties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
@@ -200,7 +206,7 @@ export function Calendar() {
         ) : (
           <SingleCalendarView
             ref={calendarRef}
-            propertyId={selectedPropertyId}
+            propertyId={effectivePropertyId}
             bookings={bookings}
             onBookingClick={handleBookingClick}
             onDateRangeSelect={handleDateRangeSelect}

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { AllowedUser } from "@/types";
+import type { AllowedUser, HouseId } from "@/types";
 
 // Öffentlich lesbar (siehe src/lib/whitelist.ts) — Dokument-ID = normalisierte E-Mail.
 async function fetchAllowedUsers(): Promise<AllowedUser[]> {
@@ -12,6 +12,9 @@ async function fetchAllowedUsers(): Promise<AllowedUser[]> {
       email: d.id,
       displayName: String(raw.displayName ?? ""),
       role: raw.role === "viewer" ? "viewer" : "admin",
+      houses: Array.isArray(raw.houses)
+        ? (raw.houses as unknown[]).filter((h): h is HouseId => h === "upstalsboom" || h === "haus-anne")
+        : [],
     } as AllowedUser;
   });
 }

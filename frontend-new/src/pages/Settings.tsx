@@ -14,6 +14,7 @@ import { useNotificationSettings, useUpdateNotificationSettings } from "@/hooks/
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications";
 import type { NotificationSettings } from "@/types";
 import { ICAL_IMPORT_ENABLED } from "@/lib/features";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 
 function fmtSync(iso: string) {
   if (!iso) return "Noch nie";
@@ -40,6 +41,7 @@ export function Settings() {
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl]   = useState("");
   const [newProp, setNewProp] = useState(properties[0].id);
+  const { houseLabels } = useHouseAccess();
 
   const [syncResults, setSyncResults] = useState<SyncResult[] | null>(null);
 
@@ -308,7 +310,7 @@ export function Settings() {
                   onChange={(e) => setNewProp(e.target.value)}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {["Upstalsboom", "Haus Anne"].map((house) => (
+                  {houseLabels.map((house) => (
                     <optgroup key={house} label={house}>
                       {properties.filter((p) => p.house === house).map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>

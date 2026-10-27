@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useBookings } from "@/hooks/useBookings";
 import { isBlocked } from "@/lib/blocks";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { properties } from "@/lib/properties";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -369,7 +370,10 @@ export function Analytics() {
   const [toMonth, setToMonth]       = useState(DEFAULT_TO);
   const [fromYear, setFromYear]     = useState(now.getFullYear() - 1);
   const [toYear, setToYear]         = useState(now.getFullYear());
-  const [propFilter, setPropFilter] = useState<PropFilter>("all");
+  const [chosenPropFilter, setPropFilter] = useState<PropFilter>("all");
+  // Konten mit nur einem Haus: fest dieses Haus (auch für die Auslastung), kein Umschalter
+  const { onlyHouseLabel, allHouses } = useHouseAccess();
+  const propFilter: PropFilter = onlyHouseLabel ?? chosenPropFilter;
   const [visibleCategories, setVisibleCategories] = useState<Set<RevenueCategory>>(new Set(ALL_CATEGORIES));
 
   // Sperren (z.B. Familie) sind keine Vermietung → weder Umsatz noch Auslastung/Statistik.
@@ -598,14 +602,14 @@ export function Analytics() {
                 </>
               )}
             </div>
-            <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+            {allHouses && <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
               {(["all", "Upstalsboom", "Haus Anne"] as PropFilter[]).map((f) => (
                 <button key={f} onClick={() => setPropFilter(f)}
                   className={`px-3 py-1.5 rounded-md text-sm font-medium transition whitespace-nowrap ${propFilter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
                   {f === "all" ? "Alle" : f}
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
         </div>
 

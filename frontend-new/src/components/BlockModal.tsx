@@ -3,6 +3,7 @@ import { Lock, Trash2, X } from "lucide-react";
 import { useBookings, useCreateBooking, useUpdateBooking, useSoftDeleteBooking } from "@/hooks/useBookings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { properties, houseIdOf } from "@/lib/properties";
 import { findCollision } from "@/lib/bookingDrag";
 import { diffBooking } from "@/lib/bookingHistory";
@@ -32,6 +33,7 @@ export function BlockModal({ open, booking, prefill, onClose, onSwitchToBooking,
   const { data: bookings = [] } = useBookings();
   const { data: houseSettings = [] } = useHouseSettings();
   const { isViewer } = useUserRole();
+  const { houseLabels } = useHouseAccess();
   const create = useCreateBooking();
   const update = useUpdateBooking();
   const del = useSoftDeleteBooking();
@@ -155,7 +157,7 @@ export function BlockModal({ open, booking, prefill, onClose, onSwitchToBooking,
   };
 
   const readOnly = isViewer;
-  const houses = ["Upstalsboom", "Haus Anne"] as const;
+  const houses = houseLabels;
 
   const card = (
     <div className={variant === "modal"
