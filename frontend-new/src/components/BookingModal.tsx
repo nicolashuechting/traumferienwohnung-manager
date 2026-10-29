@@ -556,7 +556,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const { data: houseSettings = [] } = useHouseSettings();
   const { isViewer } = useUserRole();
   const { isStammgast } = useGuestStats();
-  const { houseLabels } = useHouseAccess(); // Wohnungsauswahl nur für sichtbare Häuser
+  const { houseLabels, houses: visibleHouses } = useHouseAccess(); // Wohnungsauswahl nur für sichtbare Häuser
   const { data: guests = [] } = useGuests();
   const qc = useQueryClient();
   const create = useCreateBooking();
@@ -785,25 +785,37 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   };
 
   // Gast-Erkennung nur beim Neuanlegen (bei bestehenden Buchungen sind Daten schon gesetzt).
-  // Zeigt passende bekannte Gäste als Fenster — nur beim Neuanlegen, nur Gäste desselben
-  // Hauses (Profile sind pro Haus getrennt) und nichts, was schon entschieden wurde.
-  const offerGuests = (found: Guest[], via: "E-Mail" | "Telefonnummer" | "Name") => {
-    if (current || !form.property_id || guestAccepted.current) return;
+  // Zeigt passende bekannte Gäste als Fenster — nur beim Neuanlegen und nichts, was schon
+  // entschieden wurde. Profile sind pro Haus getrennt: mit gewählter Wohnung nur deren Haus,
+  // ohne Wohnung alle Häuser, die das Konto sehen darf.
+  const offerGuests = (found: Guest[], via: "E-Mail" | "Telefonnummer" | "Name"): boolean => {
+    if (current || guestAccepted.current) return false;
     const fresh = found.filter((g) => !decidedGuestIds.current.has(g.id));
     if (fresh.length > 0) setGuestMatches({ guests: fresh, via });
+    return fresh.length > 0;
   };
+  const searchHouses = (propertyId: string): HouseId[] => (propertyId ? [houseIdOf(propertyId)] : visibleHouses);
 
-  const handleEmailBlur = () => {
-    const match = findGuest(guests, houseIdOf(form.property_id), form.email);
-    offerGuests(match ? [match] : [], "E-Mail");
-  };
+  const checkEmail = (f: BookingFormData) =>
+    offerGuests(searchHouses(f.property_id).flatMap((h) => findGuest(guests, h, f.email) ?? []), "E-Mail");
+  const checkPhone = (f: BookingFormData, phone: string) =>
+    offerGuests(searchHouses(f.property_id).flatMap((h) => findGuestsByPhone(guests, h, phone)), "Telefonnummer");
+  const checkName = (f: BookingFormData) =>
+    offerGuests(searchHouses(f.property_id).flatMap((h) => findGuestsByName(guests, h, f.guest_first_name, f.guest_last_name)), "Name");
 
-  const handleGuestNameBlur = () => {
-    offerGuests(findGuestsByName(guests, houseIdOf(form.property_id), form.guest_first_name, form.guest_last_name), "Name");
-  };
+  const handleEmailBlur = () => { checkEmail(form); };
+  const handleGuestNameBlur = () => { checkName(form); };
+  const handlePhoneBlur = (phone: string) => { checkPhone(form, phone); };
 
-  const handlePhoneBlur = (phone: string) => {
-    offerGuests(findGuestsByPhone(guests, houseIdOf(form.property_id), phone), "Telefonnummer");
+  // Wohnung erst nach Name/E-Mail gewählt: im jetzt bekannten Haus noch einmal nachsehen
+  const handlePropertyChange = (propertyId: string) => {
+    const next = { ...form, property_id: propertyId };
+    set("property_id", propertyId);
+    if (guestMatches) return;
+    if (next.email && checkEmail(next)) return;
+    if (next.phone && checkPhone(next, next.phone)) return;
+    if (next.landline && checkPhone(next, next.landline)) return;
+    if (next.guest_last_name) checkName(next);
   };
 
   // Übernimmt die Daten des gewählten Gasts nur in LEERE Felder — schon Eingetipptes bleibt.
@@ -1698,7 +1710,7 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
               <div className="grid grid-cols-[2fr_1fr_2fr_2fr] gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Wohnung *</label>
-                  <select value={form.property_id} onChange={(e) => set("property_id", e.target.value)} className={inputCls}>
+                  <select value={form.property_id} onChange={(e) => handlePropertyChange(e.target.value)} className={inputCls}>
                     <option value="" disabled>Wohnung wählen…</option>
                     {houseLabels.map((house) => (
                       <optgroup key={house} label={house}>
@@ -2102,6 +2114,9 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                     <div key={g.id} className="border border-gray-200 rounded-lg p-4 space-y-2">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-gray-900">{g.name || g.email}</span>
+                        {!form.property_id && visibleHouses.length > 1 && (
+                          <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">{g.house === "haus-anne" ? "Haus Anne" : "Upstalsboom"}</span>
+                        )}
                         {(g.isRegularGuest || stays.length >= 2) && (
                           <span className="flex items-center gap-0.5 text-xs font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
                             <Star className="w-3 h-3 fill-amber-400 text-amber-400" />Stammgast
