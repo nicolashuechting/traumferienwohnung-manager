@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { collection, getDoc, getDocs, doc, setDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { houseIdOf } from "@/lib/properties";
+import { splitGuestName } from "@/lib/guestName";
 import type { Guest, BookingFormData, HouseId } from "@/types";
 
 // Gast-Profile sind nach Haus getrennt: Dokument-ID "<haus>__<email>". Ältere Profile
@@ -63,6 +64,56 @@ export function findGuest(guests: Guest[], house: HouseId, email: string): Guest
   const e = normEmail(email);
   if (!e) return undefined;
   return guests.find((g) => g.house === house && g.email === e);
+}
+
+function normName(s: string): string {
+  return (s ?? "").normalize("NFC").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Nur Ziffern, Ländervorwahl +49/0049 → 0 — damit "+49 176 22…" und "0176 22…" gleich sind.
+export function normPhone(phone: string): string {
+  const d = (phone ?? "").replace(/\D/g, "");
+  if (d.startsWith("0049")) return "0" + d.slice(4);
+  if (d.startsWith("49") && (phone ?? "").trim().startsWith("+")) return "0" + d.slice(2);
+  return d;
+}
+
+// Zusatzprofile für eine zweite E-Mail-Adresse (Import aus der alten Gästeliste) tragen
+// dieselben Daten wie das Hauptprofil — bei Treffern über Name/Telefon nur einmal zeigen.
+function dedupeSamePerson(list: Guest[]): Guest[] {
+  const isAlias = (g: Guest) => g.personNotes.startsWith("Zweite E-Mail-Adresse");
+  const sorted = [...list].sort((a, b) => Number(isAlias(a)) - Number(isAlias(b)));
+  const seen = new Set<string>();
+  return sorted.filter((g) => {
+    const k = [normName(g.name), normPhone(g.phone), normName(g.street), normName(g.city)].join("|");
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+// Gäste eines Hauses per Name: Vor- + Nachname müssen passen. Nur Nachname (ohne Vorname)
+// zählt nur, wenn es genau einen Gast mit diesem Nachnamen gibt (sonst zu viele "Müller").
+export function findGuestsByName(guests: Guest[], house: HouseId, firstName: string, lastName: string): Guest[] {
+  const first = normName(firstName);
+  const last = normName(lastName);
+  if (!last) return [];
+  const inHouse = guests.filter((g) => g.house === house);
+  const lastOf = (g: Guest) => normName(g.lastName || splitGuestName(g.name).last);
+  const firstOf = (g: Guest) => normName(g.firstName || splitGuestName(g.name).first);
+  if (first) {
+    return dedupeSamePerson(inHouse.filter((g) =>
+      (lastOf(g) === last && firstOf(g) === first) || normName(g.name) === `${first} ${last}`));
+  }
+  const byLast = dedupeSamePerson(inHouse.filter((g) => lastOf(g) === last));
+  return byLast.length === 1 ? byLast : [];
+}
+
+// Gäste eines Hauses per Telefonnummer (mind. 6 Ziffern, damit Bruchstücke nicht treffen).
+export function findGuestsByPhone(guests: Guest[], house: HouseId, phone: string): Guest[] {
+  const p = normPhone(phone);
+  if (p.length < 6) return [];
+  return dedupeSamePerson(guests.filter((g) => g.house === house && normPhone(g.phone) === p));
 }
 
 // Altes Profil (ID = E-Mail) mit ins neue Haus-Anne-Profil übernehmen, damit beim ersten

@@ -163,9 +163,15 @@ function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking
             )}
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400 mt-1">
-              <span>Wohnungen: {[...g.apartments].join(", ")}</span>
-              <span>·</span>
-              <span>Letzter Aufenthalt: {fmt(g.lastStay)}</span>
+              {g.totalBookings > 0 ? (
+                <>
+                  <span>Wohnungen: {[...g.apartments].join(", ")}</span>
+                  <span>·</span>
+                  <span>Letzter Aufenthalt: {fmt(g.lastStay)}</span>
+                </>
+              ) : (
+                <span>Noch keine Buchung im System – frühere Aufenthalte stehen in der Notiz</span>
+              )}
             </div>
             {numbers.length > 0 && (
               <div className="flex items-start gap-1.5 text-xs text-gray-500 mt-1 min-w-0">
@@ -189,7 +195,7 @@ function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking
                 <Pencil className="w-4 h-4" />
               </button>
             )}
-            {!isViewer && (
+            {!isViewer && g.totalBookings > 0 && (
               <button
                 onClick={handleDeleteGuest}
                 title="Alle Buchungen dieses Gasts in den Papierkorb verschieben"
@@ -211,6 +217,7 @@ function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide py-2">
             Buchungshistorie
           </p>
+          {sorted.length === 0 && <p className="text-xs text-gray-400 pb-2">Noch keine Buchung im System.</p>}
           {sorted.map((b) => <BookingRow key={b.id} b={b} onOpen={onOpenBooking} />)}
         </div>
       )}
@@ -300,6 +307,36 @@ export function Guests() {
       if (b.check_in > g.lastStay) g.lastStay = b.check_in;
       g.apartments.add(propName(b.property_id));
       g.bookingList.push(b);
+    });
+    // Hinterlegte Gäste ohne Buchung im System (z.B. aus der alten Gästeliste übernommen)
+    // ebenfalls anzeigen — Schlüssel = E-Mail, wie bei guestKey() für Buchungen mit E-Mail.
+    guestProfiles.forEach((p) => {
+      if (p.house !== house || !p.email) return;
+      const key = guestKey(p.email, "", "");
+      if (map.has(key)) return;
+      const name = p.name || [p.firstName, p.lastName].filter(Boolean).join(" ") || p.email;
+      const heuristicSplit = splitGuestName(name);
+      map.set(key, {
+        key,
+        house,
+        name,
+        firstName: p.firstName || heuristicSplit.first,
+        lastName: p.lastName || heuristicSplit.last,
+        phone: p.phone,
+        email: p.email,
+        street: p.street,
+        houseNumber: p.houseNumber,
+        zip: p.zip,
+        city: p.city,
+        country: p.country,
+        personNotes: p.personNotes,
+        marketingConsent: p.marketingConsent,
+        isRegularGuest: p.isRegularGuest,
+        totalBookings: 0,
+        lastStay: "",
+        apartments: new Set(),
+        bookingList: [],
+      });
     });
     return [...map.values()];
   }, [bookings, guestProfiles, house]);

@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw, Mail, Star, Lock } from "lucide-react";
+import { X, Trash2, Check, Copy, CheckCircle2, Pencil, Clock, ArrowRight, ChevronDown, RefreshCw, Mail, Star, Lock, Phone, MapPin } from "lucide-react";
 import { properties } from "@/lib/properties";
 import { useCreateBooking, useUpdateBooking, useSoftDeleteBooking, useBookings } from "@/hooks/useBookings";
 import { useBookingHistory } from "@/hooks/useBookingHistory";
 import { usePriceSettings } from "@/hooks/usePriceSettings";
 import { useHouseSettings } from "@/hooks/useHouseSettings";
-import { useGuests, upsertGuestFields, findGuest } from "@/hooks/useGuests";
+import { useGuests, upsertGuestFields, findGuest, findGuestsByName, findGuestsByPhone } from "@/hooks/useGuests";
 import { BlockModal } from "@/components/BlockModal";
 import { useHouseAccess } from "@/hooks/useHouseAccess";
 import { isBlocked } from "@/lib/blocks";
@@ -516,10 +516,13 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   const { data: correctionNotes = [] } = useCorrectionNotes();
   const createNote = useCreateCorrectionNote();
   const [savedConfirmation, setSavedConfirmation] = useState<StoredConfirmation | null>(null);
-  const [guestSuggestion, setGuestSuggestion] = useState<Guest | null>(null);
+  // Bekannte Gäste, die zur Eingabe (E-Mail, Telefon oder Name) passen — als Fenster über dem Formular
+  const [guestMatches, setGuestMatches] = useState<{ guests: Guest[]; via: "E-Mail" | "Telefonnummer" | "Name" } | null>(null);
+  // Schon entschiedene Vorschläge (übernommen oder "anderer Gast") nicht erneut anbieten
+  const decidedGuestIds = useRef<Set<string>>(new Set());
+  const guestAccepted = useRef(false);
   // Sperre (z.B. Familie) statt Buchung — eigenes, schlankes Formular (BlockModal)
   const [blockMode, setBlockMode] = useState(false);
-  const [nameCollisionHint, setNameCollisionHint] = useState<string | null>(null);
   const [personNotes, setPersonNotes] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [isRegularGuest, setIsRegularGuest] = useState(false);
@@ -617,8 +620,9 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
     setPdfFileName("");
     setPdfSaving(false);
     setSavedConfirmation(null);
-    setGuestSuggestion(null);
-    setNameCollisionHint(null);
+    setGuestMatches(null);
+    decidedGuestIds.current = new Set();
+    guestAccepted.current = false;
     setPersonNotes("");
     setMarketingConsent(false);
     setIsRegularGuest(false);
@@ -781,54 +785,70 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
   };
 
   // Gast-Erkennung nur beim Neuanlegen (bei bestehenden Buchungen sind Daten schon gesetzt).
+  // Zeigt passende bekannte Gäste als Fenster — nur beim Neuanlegen, nur Gäste desselben
+  // Hauses (Profile sind pro Haus getrennt) und nichts, was schon entschieden wurde.
+  const offerGuests = (found: Guest[], via: "E-Mail" | "Telefonnummer" | "Name") => {
+    if (current || !form.property_id || guestAccepted.current) return;
+    const fresh = found.filter((g) => !decidedGuestIds.current.has(g.id));
+    if (fresh.length > 0) setGuestMatches({ guests: fresh, via });
+  };
+
   const handleEmailBlur = () => {
-    if (current) return;
-    const email = form.email.trim().toLowerCase();
-    if (!email) { setGuestSuggestion(null); return; }
-    // Nur Gäste desselben Hauses vorschlagen (Profile sind pro Haus getrennt)
-    const match = findGuest(guests, houseIdOf(form.property_id), email);
-    setGuestSuggestion(match ?? null);
+    const match = findGuest(guests, houseIdOf(form.property_id), form.email);
+    offerGuests(match ? [match] : [], "E-Mail");
   };
 
   const handleGuestNameBlur = () => {
-    if (current) return;
-    const name = [form.guest_first_name, form.guest_last_name].filter(Boolean).join(" ").trim().toLowerCase();
-    if (!name) { setNameCollisionHint(null); return; }
-    const email = form.email.trim().toLowerCase();
-    const match = guests.find((g) => g.name.trim().toLowerCase() === name && g.email.toLowerCase() !== email);
-    setNameCollisionHint(match ? `Es gibt bereits einen Gast mit gleichem Namen (${match.email}) – evtl. dieselbe Person?` : null);
+    offerGuests(findGuestsByName(guests, houseIdOf(form.property_id), form.guest_first_name, form.guest_last_name), "Name");
   };
 
-  const applyGuestSuggestion = (mode: "fill" | "replace") => {
-    if (!guestSuggestion) return;
-    const hasSplitName = guestSuggestion.firstName || guestSuggestion.lastName;
+  const handlePhoneBlur = (phone: string) => {
+    offerGuests(findGuestsByPhone(guests, houseIdOf(form.property_id), phone), "Telefonnummer");
+  };
+
+  // Übernimmt die Daten des gewählten Gasts nur in LEERE Felder — schon Eingetipptes bleibt.
+  const applyGuest = (g: Guest) => {
+    const hasSplitName = g.firstName || g.lastName;
     const { first: suggestedFirst, last: suggestedLast } = hasSplitName
-      ? { first: guestSuggestion.firstName, last: guestSuggestion.lastName }
-      : splitGuestName(guestSuggestion.name);
+      ? { first: g.firstName, last: g.lastName }
+      : splitGuestName(g.name);
     setForm((prev) => {
       const next = { ...prev };
-      const fields: (keyof Pick<BookingFormData, "guest_first_name" | "guest_last_name" | "phone" | "street" | "houseNumber" | "zip" | "city" | "country">)[] =
-        ["guest_first_name", "guest_last_name", "phone", "street", "houseNumber", "zip", "city", "country"];
+      const fields: (keyof Pick<BookingFormData, "guest_first_name" | "guest_last_name" | "phone" | "email" | "street" | "houseNumber" | "zip" | "city" | "country">)[] =
+        ["guest_first_name", "guest_last_name", "phone", "email", "street", "houseNumber", "zip", "city", "country"];
       const source: Record<string, string> = {
         guest_first_name: suggestedFirst,
         guest_last_name: suggestedLast,
-        phone: guestSuggestion.phone,
-        street: guestSuggestion.street,
-        houseNumber: guestSuggestion.houseNumber,
-        zip: guestSuggestion.zip,
-        city: guestSuggestion.city,
-        country: guestSuggestion.country,
+        phone: g.phone,
+        email: g.email,
+        street: g.street,
+        houseNumber: g.houseNumber,
+        zip: g.zip,
+        city: g.city,
+        country: g.country,
       };
       fields.forEach((f) => {
-        if (mode === "replace" || !next[f]) next[f] = source[f];
+        if (!next[f]) next[f] = source[f];
       });
       return next;
     });
-    if (mode === "replace" || !personNotes) setPersonNotes(guestSuggestion.personNotes);
-    setMarketingConsent(guestSuggestion.marketingConsent);
-    setIsRegularGuest(guestSuggestion.isRegularGuest);
-    setGuestSuggestion(null);
+    if (!personNotes) setPersonNotes(g.personNotes);
+    setMarketingConsent(g.marketingConsent);
+    setIsRegularGuest(g.isRegularGuest);
+    guestAccepted.current = true;
+    setGuestMatches(null);
   };
+
+  const dismissGuestMatches = () => {
+    guestMatches?.guests.forEach((g) => decidedGuestIds.current.add(g.id));
+    setGuestMatches(null);
+  };
+
+  // Bisherige Buchungen eines Gasts im System (neueste zuerst) — für das Vorschlags-Fenster
+  const staysOf = (g: Guest) =>
+    allBookings
+      .filter((b) => !isBlocked(b) && houseIdOf(b.property_id) === g.house && b.email.trim().toLowerCase() === g.email)
+      .sort((a, b) => b.check_in.localeCompare(a.check_in));
 
   // Kinderzahl ändern: kinderAlter mitführen — beim Verringern vom Ende
   // abschneiden, beim Erhöhen bestehende Alter erhalten und neue Felder mit 0 auffüllen.
@@ -1696,9 +1716,6 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nachname *</label>
                   <input type="text" value={form.guest_last_name} onChange={(e) => set("guest_last_name", e.target.value)} onBlur={handleGuestNameBlur} placeholder="Müller" className={inputCls} />
-                  {nameCollisionHint && (
-                    <p className="text-xs text-amber-600 mt-1">{nameCollisionHint}</p>
-                  )}
                 </div>
               </div>
 
@@ -1738,11 +1755,11 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Mobil</label>
-                  <input type="text" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+49 176 2233445" className={inputCls} />
+                  <input type="text" value={form.phone} onChange={(e) => set("phone", e.target.value)} onBlur={(e) => handlePhoneBlur(e.target.value)} placeholder="+49 176 2233445" className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Festnetz</label>
-                  <input type="text" value={form.landline} onChange={(e) => set("landline", e.target.value)} placeholder="+49 40 12345678" className={inputCls} />
+                  <input type="text" value={form.landline} onChange={(e) => set("landline", e.target.value)} onBlur={(e) => handlePhoneBlur(e.target.value)} placeholder="+49 40 12345678" className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
@@ -1755,30 +1772,6 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                   </select>
                 </div>
               </div>
-
-              {guestSuggestion && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm space-y-2">
-                  <p className="text-blue-900">
-                    ✓ Gast bekannt: <span className="font-semibold">{guestSuggestion.name || "–"}</span>
-                    {guestSuggestion.phone && ` · Mobil: ${guestSuggestion.phone}`}
-                    {(guestSuggestion.street || guestSuggestion.city) && (
-                      <> · {[`${guestSuggestion.street} ${guestSuggestion.houseNumber}`.trim(), `${guestSuggestion.zip} ${guestSuggestion.city}`.trim(), guestSuggestion.country]
-                        .filter(Boolean).join(", ")}</>
-                    )}
-                  </p>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => applyGuestSuggestion("fill")} className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition">
-                      Ergänzen
-                    </button>
-                    <button type="button" onClick={() => applyGuestSuggestion("replace")} className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-white border border-blue-300 hover:bg-blue-50 rounded-lg transition">
-                      Ersetzen
-                    </button>
-                    <button type="button" onClick={() => setGuestSuggestion(null)} className="px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-blue-100 rounded-lg transition">
-                      Nein, anderer Gast
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <fieldset disabled={invoiceLocked} className={LOCK_FIELDSET_CLS}>
               <div className="grid grid-cols-[2fr_1fr] gap-4">
@@ -2084,6 +2077,67 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
             >
               <Trash2 className="w-4 h-4" /> Löschen
             </button>
+          </div>
+        )}
+
+        {/* ── Overlay: Bekannter Gast gefunden ── */}
+        {guestMatches && (
+          <div className="absolute inset-0 z-30 bg-black/30 flex items-center justify-center rounded-xl p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-full flex flex-col">
+              <div className="px-5 pt-5 pb-3 border-b border-gray-100">
+                <h3 className="text-base font-bold text-gray-900">
+                  {guestMatches.guests.length > 1 ? `${guestMatches.guests.length} bekannte Gäste gefunden` : "Bekannter Gast gefunden"}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Erkannt über {guestMatches.via}. {guestMatches.guests.length > 1 ? "Bitte den richtigen auswählen." : "Ist das der richtige Gast?"}{" "}
+                  Übernommen wird nur in leere Felder – schon Eingetipptes bleibt.
+                </p>
+              </div>
+              <div className="overflow-y-auto px-5 py-4 space-y-3">
+                {guestMatches.guests.map((g) => {
+                  const stays = staysOf(g);
+                  const address = [`${g.street} ${g.houseNumber}`.trim(), `${g.zip} ${g.city}`.trim(), g.country].filter(Boolean).join(", ");
+                  return (
+                    <div key={g.id} className="border border-gray-200 rounded-lg p-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-gray-900">{g.name || g.email}</span>
+                        {(g.isRegularGuest || stays.length >= 2) && (
+                          <span className="flex items-center gap-0.5 text-xs font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
+                            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />Stammgast
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600 space-y-0.5">
+                        {g.email && <div className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" /><span className="truncate">{g.email}</span></div>}
+                        {g.phone && <div className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />{g.phone}</div>}
+                        {address && <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" /><span className="truncate">{address}</span></div>}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {stays.length > 0
+                          ? `${stays.length} Buchung${stays.length !== 1 ? "en" : ""} im System · zuletzt ${stays.slice(0, 3)
+                              .map((b) => `${fmtDate(b.check_in)} (${properties.find((p) => p.id === b.property_id)?.name ?? b.property_id})`).join(", ")}`
+                          : "Noch keine Buchung im System – frühere Aufenthalte stehen in der Notiz."}
+                      </p>
+                      {g.personNotes && (
+                        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                          {g.personNotes}
+                        </p>
+                      )}
+                      <button type="button" onClick={() => applyGuest(g)}
+                        className="w-full px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition">
+                        Ja, das ist {guestMatches.guests.length > 1 ? "dieser Gast" : "der Gast"} – Daten übernehmen
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+                <button type="button" onClick={dismissGuestMatches}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 rounded-lg transition">
+                  Nein, anderer Gast
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
