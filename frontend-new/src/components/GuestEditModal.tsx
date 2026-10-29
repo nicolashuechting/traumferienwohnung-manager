@@ -17,6 +17,7 @@ interface Props {
     firstName: string;
     lastName: string;
     phone: string;
+    landline: string;
     street: string;
     houseNumber: string;
     zip: string;
@@ -33,7 +34,7 @@ interface Props {
 export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings }: Props) {
   const qc = useQueryClient();
   const [form, setForm] = useState<GuestEditFields>({
-    firstName: "", lastName: "", email: "", phone: "", street: "", houseNumber: "", zip: "", city: "", country: "",
+    firstName: "", lastName: "", email: "", phone: "", landline: "", street: "", houseNumber: "", zip: "", city: "", country: "",
     personNotes: "", marketingConsent: false, isRegularGuest: false,
   });
   const [saving, setSaving] = useState(false);
@@ -51,6 +52,7 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
       lastName: last,
       email: guest.email,
       phone: guest.phone,
+      landline: guest.landline,
       street: guest.street,
       houseNumber: guest.houseNumber,
       zip: guest.zip,
@@ -143,10 +145,14 @@ export function GuestEditModal({ open, onClose, guest, bookingIds, totalBookings
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Telefon</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mobil</label>
               <input type="text" value={form.phone} onChange={(e) => set("phone", e.target.value)} className={inputCls} />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Festnetz</label>
+              <input type="text" value={form.landline} onChange={(e) => set("landline", e.target.value)} className={inputCls} />
+            </div>
+            <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail *</label>
               <input type="text" value={form.email} onChange={(e) => set("email", e.target.value)} className={inputCls} />
             </div>

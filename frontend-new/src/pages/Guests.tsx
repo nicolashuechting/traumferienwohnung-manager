@@ -34,6 +34,7 @@ interface GuestRecord {
   firstName: string;
   lastName: string;
   phone: string;
+  landline: string;
   email: string;
   street: string;
   houseNumber: string;
@@ -133,12 +134,18 @@ function GuestCard({ g, onOpenBooking, onEdit }: { g: GuestRecord; onOpenBooking
               )}
             </div>
 
-            {(g.phone || g.email) && (
+            {(g.phone || g.landline || g.email) && (
               <div className="flex flex-col gap-0.5 text-xs text-gray-500 mb-1">
                 {g.phone && (
                   <div className="flex items-center gap-1.5">
                     <Phone className="w-3.5 h-3.5 flex-shrink-0" />
                     <span className="truncate">{g.phone}</span>
+                  </div>
+                )}
+                {g.landline && (
+                  <div className="flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{g.landline} <span className="text-gray-400">(Festnetz)</span></span>
                   </div>
                 )}
                 {g.email && (
@@ -286,7 +293,8 @@ export function Guests() {
           name: combinedName,
           firstName: profile?.firstName || b.guest_first_name || heuristicSplit.first,
           lastName:  profile?.lastName  || b.guest_last_name  || heuristicSplit.last,
-          phone: b.phone ?? "",
+          phone: b.phone || profile?.phone || "",
+          landline: b.landline || profile?.landline || "",
           email: b.email ?? "",
           street: profile?.street ?? "",
           houseNumber: profile?.houseNumber ?? "",
@@ -323,6 +331,7 @@ export function Guests() {
         firstName: p.firstName || heuristicSplit.first,
         lastName: p.lastName || heuristicSplit.last,
         phone: p.phone,
+        landline: p.landline,
         email: p.email,
         street: p.street,
         houseNumber: p.houseNumber,
@@ -349,6 +358,7 @@ export function Guests() {
           (g) =>
             g.name.toLowerCase().includes(q) ||
             g.phone.toLowerCase().includes(q) ||
+            g.landline.toLowerCase().includes(q) ||
             g.email.toLowerCase().includes(q) ||
             g.bookingList.some((b) => (b.booking_number ?? "").toLowerCase().includes(q)),
         );

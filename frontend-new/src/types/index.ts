@@ -170,7 +170,8 @@ export interface Guest {
   name: string;       // kombiniert, aus firstName/lastName abgeleitet — für Anzeige
   firstName: string;
   lastName: string;
-  phone: string;
+  phone: string;      // Mobil
+  landline: string;   // Festnetz (wie bei Buchungen getrennt von Mobil)
   street: string;
   houseNumber: string;
   zip: string;

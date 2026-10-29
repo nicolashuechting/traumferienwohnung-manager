@@ -39,6 +39,7 @@ async function fetchGuests(): Promise<Guest[]> {
       firstName: String(raw.firstName ?? ""),
       lastName: String(raw.lastName ?? ""),
       phone: String(raw.phone ?? ""),
+      landline: String(raw.landline ?? ""),
       street: String(raw.street ?? ""),
       houseNumber: String(raw.houseNumber ?? ""),
       zip: String(raw.zip ?? ""),
@@ -113,7 +114,7 @@ export function findGuestsByName(guests: Guest[], house: HouseId, firstName: str
 export function findGuestsByPhone(guests: Guest[], house: HouseId, phone: string): Guest[] {
   const p = normPhone(phone);
   if (p.length < 6) return [];
-  return dedupeSamePerson(guests.filter((g) => g.house === house && normPhone(g.phone) === p));
+  return dedupeSamePerson(guests.filter((g) => g.house === house && (normPhone(g.phone) === p || normPhone(g.landline) === p)));
 }
 
 // Altes Profil (ID = E-Mail) mit ins neue Haus-Anne-Profil übernehmen, damit beim ersten
@@ -153,6 +154,8 @@ export async function upsertGuestFromBooking(data: Partial<BookingFormData>, pro
         firstName: data.guest_first_name ?? "",
         lastName: data.guest_last_name ?? "",
         phone: data.phone ?? "",
+        // Festnetz nur setzen, wenn angegeben — eine Buchung ohne Festnetz löscht es nicht
+        ...(data.landline ? { landline: data.landline } : {}),
         street: data.street ?? "",
         houseNumber: data.houseNumber ?? "",
         zip: data.zip ?? "",
@@ -197,6 +200,7 @@ export interface GuestEditFields {
   lastName: string;
   email: string;
   phone: string;
+  landline: string;
   street: string;
   houseNumber: string;
   zip: string;
@@ -228,6 +232,7 @@ export async function updateGuestAndBookings(
       firstName: fields.firstName,
       lastName: fields.lastName,
       phone: fields.phone,
+      landline: fields.landline,
       street: fields.street,
       houseNumber: fields.houseNumber,
       zip: fields.zip,
@@ -251,6 +256,7 @@ export async function updateGuestAndBookings(
       guest_first_name: fields.firstName,
       guest_last_name: fields.lastName,
       phone: fields.phone,
+      landline: fields.landline,
       email: newEmail,
       street: fields.street,
       houseNumber: fields.houseNumber,

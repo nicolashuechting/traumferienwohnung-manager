@@ -814,12 +814,13 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
       : splitGuestName(g.name);
     setForm((prev) => {
       const next = { ...prev };
-      const fields: (keyof Pick<BookingFormData, "guest_first_name" | "guest_last_name" | "phone" | "email" | "street" | "houseNumber" | "zip" | "city" | "country">)[] =
-        ["guest_first_name", "guest_last_name", "phone", "email", "street", "houseNumber", "zip", "city", "country"];
+      const fields: (keyof Pick<BookingFormData, "guest_first_name" | "guest_last_name" | "phone" | "landline" | "email" | "street" | "houseNumber" | "zip" | "city" | "country">)[] =
+        ["guest_first_name", "guest_last_name", "phone", "landline", "email", "street", "houseNumber", "zip", "city", "country"];
       const source: Record<string, string> = {
         guest_first_name: suggestedFirst,
         guest_last_name: suggestedLast,
         phone: g.phone,
+        landline: g.landline,
         email: g.email,
         street: g.street,
         houseNumber: g.houseNumber,
@@ -2109,7 +2110,8 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                       </div>
                       <div className="text-sm text-gray-600 space-y-0.5">
                         {g.email && <div className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" /><span className="truncate">{g.email}</span></div>}
-                        {g.phone && <div className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />{g.phone}</div>}
+                        {g.phone && <div className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />{g.phone} <span className="text-gray-400">(Mobil)</span></div>}
+                        {g.landline && <div className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />{g.landline} <span className="text-gray-400">(Festnetz)</span></div>}
                         {address && <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" /><span className="truncate">{address}</span></div>}
                       </div>
                       <p className="text-xs text-gray-500">
