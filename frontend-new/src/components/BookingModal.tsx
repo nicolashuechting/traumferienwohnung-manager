@@ -1878,9 +1878,9 @@ export function BookingModal({ open, booking, prefill, onClose, variant = "modal
                   value={personNotes}
                   onChange={(e) => setPersonNotes(e.target.value)}
                   disabled={!form.email}
-                  rows={2}
+                  rows={personNotes ? 8 : 2}
                   placeholder={form.email ? "z.B. zahlt immer bar, sitzt im Rollstuhl..." : "Nur verfügbar, wenn eine E-Mail hinterlegt ist"}
-                  className={`${inputCls} resize-none disabled:bg-gray-50 disabled:text-gray-400`}
+                  className={`${inputCls} resize-y leading-relaxed disabled:bg-gray-50 disabled:text-gray-400`}
                 />
                 <label className="flex items-center gap-2 mt-2 cursor-pointer">
                   <input
