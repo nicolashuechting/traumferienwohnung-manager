@@ -206,7 +206,7 @@ export function Settings() {
         </div>
         <div className="p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-1">App-Version</h3>
-          <p className="text-sm text-gray-500">Traumferienwohnung Manager v2.0 · Vite + React + Firebase</p>
+          <p className="text-sm text-gray-500">Baltrumplaner v2.0 · Vite + React + Firebase</p>
         </div>
       </div>
 

@@ -38,7 +38,7 @@ export function Layout() {
           {open && (
             <span className="flex items-center gap-2 min-w-0">
               <img src="/favicon.svg" alt="" className="w-7 h-7 rounded-md ring-1 ring-white/20 flex-shrink-0" />
-              <span className="font-bold text-sm truncate">Traumferienwohnung</span>
+              <span className="font-bold text-sm truncate">Baltrumplaner</span>
             </span>
           )}
           <button onClick={() => setOpen(!open)} className="p-1.5 hover:bg-blue-700 rounded-lg transition flex-shrink-0">
@@ -88,7 +88,7 @@ export function Layout() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Topbar */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
-          <h1 className="text-base font-bold text-gray-900">Traumferienwohnung Manager</h1>
+          <h1 className="text-base font-bold text-gray-900">Baltrumplaner</h1>
 
           <div className="relative">
             <button

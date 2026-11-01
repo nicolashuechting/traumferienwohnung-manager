@@ -44,7 +44,7 @@ export function Register() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img src="/favicon.svg" alt="" className="w-16 h-16 mx-auto mb-4 rounded-2xl shadow-md" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">Traumferienwohnung Manager</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Baltrumplaner</h1>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-blue-100">
