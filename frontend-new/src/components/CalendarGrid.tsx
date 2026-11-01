@@ -202,6 +202,13 @@ const YEARS_AHEAD = 50;
 const DAYS_BACK = 365; // 1 year of history for iCal-imported past bookings
 const TODAY_COL = DAYS_BACK; // column index of today
 
+// Heute nicht ganz links, sondern im ersten Drittel: links davon bleiben die letzten Tage
+// (laufende Aufenthalte, heutige Abreisen) sichtbar, rechts mehr Platz für Kommendes.
+function todayScrollLeft(viewWidth: number): number {
+  const daysBefore = Math.max(2, Math.floor(viewWidth / DAY_W / 3));
+  return Math.max(0, (TODAY_COL - daysBefore) * DAY_W);
+}
+
 const TOTAL_DAYS = (() => {
   const end = new Date(TODAY);
   end.setFullYear(TODAY.getFullYear() + YEARS_AHEAD);
@@ -388,9 +395,10 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    // Start scrolled so today is the first visible day
-    el.scrollLeft = DAYS_BACK * DAY_W;
-    setScrollLeft(DAYS_BACK * DAY_W);
+    // Start so, dass heute im ersten Drittel steht (wie beim "Heute"-Button)
+    const left = todayScrollLeft(el.clientWidth);
+    el.scrollLeft = left;
+    setScrollLeft(left);
     const ro = new ResizeObserver(() => setContainerWidth(el.clientWidth));
     ro.observe(el);
     setContainerWidth(el.clientWidth);
@@ -402,13 +410,14 @@ export const CalendarGrid = forwardRef<CalendarGridHandle, CalendarGridProps>(fu
   }, []);
 
   // "Heute"-Button: sofort (ohne Scroll-Animation) so springen, dass der heutige
-  // Tag ganz links im sichtbaren Bereich steht.
+  // Tag im ersten Drittel des sichtbaren Bereichs steht.
   useImperativeHandle(ref, () => ({
     scrollToToday: () => {
       const el = scrollRef.current;
       if (!el) return;
-      el.scrollLeft = TODAY_COL * DAY_W;
-      setScrollLeft(TODAY_COL * DAY_W);
+      const left = todayScrollLeft(el.clientWidth);
+      el.scrollLeft = left;
+      setScrollLeft(left);
     },
   }), []);
 
