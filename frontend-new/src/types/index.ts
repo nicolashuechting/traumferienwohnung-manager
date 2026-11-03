@@ -50,7 +50,8 @@ export interface PriceGroupSettings {
   maxPersons: number;              // 4 oder 5 (Terrasse: 4, Kamin/Anne: 5)
   flatRate: boolean;                // true bei Anne: Preis unabhängig von Personenzahl
   cleaningFee: number;              // Servicegebühr (Kamin/Terrasse) bzw. Endreinigung (Anne)
-  extraFees: { label: string; amount: number; perPerson?: boolean }[]; // z.B. Wäschepaket bei Anne (10€/Person)
+  // z.B. Wäschepaket bei Anne (10€/Person). fromYear: gilt erst für Anreisen ab diesem Jahr (leer = immer)
+  extraFees: { label: string; amount: number; perPerson?: boolean; fromYear?: number }[];
   dogFee: number;                   // pro Hund
   years: PriceYear[];               // additiv, nach Jahr aufsteigend
 }

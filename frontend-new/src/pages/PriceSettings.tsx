@@ -240,6 +240,17 @@ export function PriceSettings() {
               }} className="w-4 h-4 rounded" />
               pro Person
             </label>
+            <div className="w-24">
+              <label className="block text-sm font-medium text-gray-700 mb-1" title="Gilt nur für Anreisen ab diesem Jahr – leer lassen = gilt immer">ab Jahr</label>
+              <input type="number" min={2020} placeholder="immer" value={f.fromYear ?? ""} onChange={(e) => {
+                // Leeres Feld = Schlüssel entfernen (Firestore speichert kein undefined)
+                const fees = [...draft.extraFees]; const y = parseInt(e.target.value);
+                const fee = { ...fees[i] };
+                if (Number.isFinite(y)) fee.fromYear = y; else delete fee.fromYear;
+                fees[i] = fee;
+                setDraft({ ...draft, extraFees: fees });
+              }} className={inputCls} />
+            </div>
             <button onClick={() => setDraft({ ...draft, extraFees: draft.extraFees.filter((_, j) => j !== i) })} className="p-1.5 text-gray-400 hover:text-red-600 mb-1">
               <Trash2 className="w-4 h-4" />
             </button>

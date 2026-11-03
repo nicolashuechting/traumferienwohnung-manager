@@ -50,7 +50,9 @@ export function calculatePrice(
   const dogFee = settings.dogFee * Math.max(0, dogCount);
   // Zusatzgebühren pro Person (z.B. Wäschepaket bei Anne) auf den tatsächlichen
   // Betrag auflösen, damit die gespeicherte Aufschlüsselung den Endbetrag zeigt.
-  const extraFees = settings.extraFees.map((f) => ({
+  // Gebühren mit "ab Jahr" nur, wenn die Anreise in diesem Jahr oder später liegt
+  const arrivalYear = Number(checkIn.slice(0, 4));
+  const extraFees = settings.extraFees.filter((f) => !f.fromYear || arrivalYear >= f.fromYear).map((f) => ({
     label: f.label,
     amount: f.perPerson ? f.amount * persons : f.amount,
   }));
