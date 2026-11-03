@@ -1,9 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { Mail, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { Link } from "react-router-dom";
+import { Mail, Lock, AlertCircle, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { isEmailAllowed } from "@/lib/whitelist";
 
 export function Register() {
   const [email, setEmail] = useState("");
@@ -13,7 +12,7 @@ export function Register() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+  const [sentTo, setSentTo] = useState("");
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -22,22 +21,40 @@ export function Register() {
     setError("");
     setLoading(true);
     try {
-      const allowed = await isEmailAllowed(email);
-      if (!allowed) {
-        setError(
-          "Diese E-Mail-Adresse ist nicht für die Nutzung der App freigeschaltet. " +
-          "Bitte wenden Sie sich an den Administrator."
-        );
-        return;
-      }
-      await createUserWithEmailAndPassword(auth, email, password);
-      navigate("/");
+      // Die Freigabeliste (allowedUsers) ist nicht mehr öffentlich lesbar, deshalb gibt es
+      // hier keine Vorab-Prüfung mehr. Zugang bekommt man erst, wenn die E-Mail per Link
+      // bestätigt ist UND auf der Freigabeliste steht — beides prüfen die Firestore-Regeln.
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(cred.user);
+      await signOut(auth);
+      setSentTo(email.trim());
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
   };
+
+  if (sentTo) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-blue-100 text-center">
+          <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Fast geschafft</h2>
+          <p className="text-sm text-gray-600">
+            Wir haben eine Bestätigungsmail an <span className="font-semibold">{sentTo}</span> geschickt
+            (auch im Spam-Ordner nachsehen). Klicke dort auf den Link und melde dich danach an.
+          </p>
+          <p className="text-xs text-gray-400 mt-3">
+            Zugang bekommst du nur, wenn der Administrator deine E-Mail-Adresse freigeschaltet hat.
+          </p>
+          <Link to="/login" className="inline-block mt-5 text-blue-600 hover:text-blue-700 font-semibold text-sm">
+            Zur Anmeldung
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center p-4">

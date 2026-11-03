@@ -3,7 +3,8 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { AllowedUser, HouseId } from "@/types";
 
-// Öffentlich lesbar (siehe src/lib/whitelist.ts) — Dokument-ID = normalisierte E-Mail.
+// Nur für freigeschaltete, angemeldete Nutzer lesbar (siehe Firestore-Regeln) —
+// Dokument-ID = normalisierte E-Mail.
 async function fetchAllowedUsers(): Promise<AllowedUser[]> {
   const snap = await getDocs(collection(db, "allowedUsers"));
   return snap.docs.map((d) => {
